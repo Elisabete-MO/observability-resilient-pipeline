@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+.env.*
+!.env.example
+.coverage
+htmlcov/
+*.log
+.DS_Store
+.vscode/
+.idea/
+benchmarks/results/
+!benchmarks/results/.gitkeep
