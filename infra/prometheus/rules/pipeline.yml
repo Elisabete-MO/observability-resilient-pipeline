@@ -1,0 +1,59 @@
+
+groups:
+  - name: pipeline
+    rules:
+      - alert: HighConsumerLag
+        expr: |
+          (
+            sum(
+              kafka_consumergroup_lag{
+                job="kafka-exporter",
+                consumergroup="events-processor",
+                topic="raw-events"
+              } >= 0
+            ) > 500
+          )
+          and on()
+          (
+            count(
+              kafka_consumergroup_lag{
+                job="kafka-exporter",
+                consumergroup="events-processor",
+                topic="raw-events"
+              } >= 0
+            ) == 3
+          )
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Acumulo de mensagens no Consumer"
+          description: "Lag total acima de 500 por 30 segundos. Valor: {{ $value }}."
+          action: "Confira se o Consumer esta ativo e consulte seus logs."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(
+              rate(
+                consumer_events_processed_total{
+                  job="consumer",
+                  result!="success"
+                }[2m]
+              )
+            )
+            /
+            sum(
+              rate(
+                consumer_events_processed_total{
+                  job="consumer"
+                }[2m]
+              )
+            )
+          ) > 0.05
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taxa elevada de erros no Consumer"
+          description: "Mais de 5% dos resultados foram erros na janela de 2 minutos."
+          action: "Confira os logs e a configuracao PROCESSING_ERROR_RATE."

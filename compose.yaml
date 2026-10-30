@@ -172,6 +172,7 @@ services:
 
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
 
     ports:
@@ -198,7 +199,25 @@ services:
 
     mem_limit: 384m
 
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address="
+
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+
+    ports:
+      - "127.0.0.1:9093:9093"
+
+    mem_limit: 128m
+
 volumes:
   kafka_data:
   prometheus_data:
   grafana_data:
+  alertmanager_data:
