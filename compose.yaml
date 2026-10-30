@@ -145,5 +145,24 @@ services:
     mem_limit: 256m
     stop_grace_period: 15s
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--storage.tsdb.retention.size=1GB"
+
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    ports:
+      - "127.0.0.1:9090:9090"
+
+    mem_limit: 384m
+
 volumes:
   kafka_data:
+  prometheus_data:
