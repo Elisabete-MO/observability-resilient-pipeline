@@ -179,6 +179,26 @@ services:
 
     mem_limit: 384m
 
+  grafana:
+    image: grafana/grafana:12.1.0
+
+    depends_on:
+      prometheus:
+        condition: service_started
+
+    environment:
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    mem_limit: 384m
+
 volumes:
   kafka_data:
   prometheus_data:
+  grafana_data:
