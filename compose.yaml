@@ -145,6 +145,22 @@ services:
     mem_limit: 256m
     stop_grace_period: 15s
 
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    command:
+      - "--kafka.server=kafka:29092"
+      - "--topic.filter=^raw-events$$"
+      - "--group.filter=^events-processor$$"
+
+    mem_limit: 128m
+
   prometheus:
     image: prom/prometheus:v3.5.0
 
