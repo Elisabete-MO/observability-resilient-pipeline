@@ -54,6 +54,9 @@ DELIVERY_DURATION = Histogram(
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15),
 )
 
+for result in ("confirmed", "failed", "enqueue_failed"):
+    PUBLISH_RESULTS.labels(result)
+
 
 class Event(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -74,12 +77,14 @@ class Event(BaseModel):
     @classmethod
     def validate_timestamp(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("Informe o fuso horario, por exemplo Z ou +00:00.")
+            raise ValueError(
+                "Informe o fuso horario, por exemplo Z ou +00:00."
+            )
         return value.astimezone(timezone.utc)
 
 
 def poll_kafka(producer: Producer, stop: threading.Event) -> None:
-    # Os callbacks de entrega sao executados durante poll().
+    # Executa os callbacks de confirmacao de entrega.
     while not stop.is_set():
         producer.poll(0.1)
 
@@ -96,6 +101,7 @@ async def lifespan(app: FastAPI):
             "request.timeout.ms": 5000,
         }
     )
+
     stop = threading.Event()
     worker = threading.Thread(
         target=poll_kafka,
@@ -112,8 +118,12 @@ async def lifespan(app: FastAPI):
         stop.set()
         await asyncio.to_thread(worker.join)
         remaining = await asyncio.to_thread(producer.flush, 10)
+
         if remaining:
-            logger.error("Encerramento com %s mensagens pendentes", remaining)
+            logger.error(
+                "Encerramento com %s mensagens pendentes",
+                remaining,
+            )
 
 
 app = FastAPI(
@@ -136,7 +146,6 @@ async def measure_requests(request: Request, call_next):
         route = request.scope.get("route")
         route_name = route.path if route else "unmatched"
 
-        # Evita contabilizar as coletas do proprio Prometheus.
         if route_name != "/metrics":
             HTTP_REQUESTS.labels(route_name, str(status)).inc()
             HTTP_DURATION.labels(route_name).observe(
@@ -146,13 +155,12 @@ async def measure_requests(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    # Confirma que o processo HTTP esta respondendo.
+    # Indica apenas que o processo HTTP responde.
     return {"status": "ok"}
 
 
 @app.get("/ready")
 def ready(request: Request):
-    # Consulta os metadados para verificar acesso ao topico.
     try:
         metadata = request.app.state.producer.list_topics(
             topic=TOPIC,
@@ -164,7 +172,10 @@ def ready(request: Request):
             topic is None
             or topic.error is not None
             or not topic.partitions
-            or any(partition.leader < 0 for partition in topic.partitions.values())
+            or any(
+                partition.leader < 0 or partition.error is not None
+                for partition in topic.partitions.values()
+            )
         ):
             raise HTTPException(503, "Topico Kafka indisponivel.")
 
@@ -184,15 +195,25 @@ def metrics():
 
 @app.post("/events", status_code=202)
 def publish_event(event: Event, request: Request):
-    encoded = json.dumps(
-        event.model_dump(mode="json"),
-        ensure_ascii=False,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
+    try:
+        encoded = json.dumps(
+            event.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise HTTPException(
+            422,
+            "O evento deve conter valores JSON validos.",
+        ) from None
 
+    # Limite do evento serializado que sera publicado no Kafka.
     if len(encoded) > MAX_EVENT_BYTES:
-        raise HTTPException(413, "O evento deve ter no maximo 64 KiB.")
+        raise HTTPException(
+            413,
+            "O evento deve ter no maximo 64 KiB.",
+        )
 
     completed = threading.Event()
     outcome: dict[str, Any] = {}
@@ -220,11 +241,20 @@ def publish_event(event: Event, request: Request):
         )
     except (BufferError, KafkaException):
         PUBLISH_RESULTS.labels("enqueue_failed").inc()
-        logger.exception("Falha ao enfileirar event_id=%s", event.event_id)
-        raise HTTPException(503, "Nao foi possivel publicar no Kafka.") from None
+        logger.exception(
+            "Falha ao enfileirar event_id=%s",
+            event.event_id,
+        )
+        raise HTTPException(
+            503,
+            "Nao foi possivel publicar no Kafka.",
+        ) from None
 
     if not completed.wait(CONFIRMATION_TIMEOUT_SECONDS):
-        logger.error("Confirmacao expirada event_id=%s", event.event_id)
+        logger.error(
+            "Confirmacao expirada event_id=%s",
+            event.event_id,
+        )
         return JSONResponse(
             status_code=503,
             content={
@@ -240,7 +270,10 @@ def publish_event(event: Event, request: Request):
             event.event_id,
             outcome["error"],
         )
-        raise HTTPException(503, "Kafka nao confirmou a publicacao.")
+        raise HTTPException(
+            503,
+            "Kafka nao confirmou a publicacao.",
+        )
 
     logger.info(
         "Publicado event_id=%s partition=%s offset=%s",

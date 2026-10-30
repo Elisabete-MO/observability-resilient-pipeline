@@ -2,9 +2,11 @@ import json
 import logging
 import os
 import random
+import re
 import signal
 import threading
 import time
+from datetime import datetime, timezone
 from uuid import UUID
 
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -26,11 +28,18 @@ MIN_DELAY_MS = int(os.getenv("PROCESSING_MIN_MS", "50"))
 MAX_DELAY_MS = int(os.getenv("PROCESSING_MAX_MS", "200"))
 ERROR_RATE = float(os.getenv("PROCESSING_ERROR_RATE", "0"))
 
+MAX_EVENT_BYTES = 64 * 1024
+
 if not 0 <= MIN_DELAY_MS <= MAX_DELAY_MS <= 30000:
-    raise ValueError("Os tempos devem respeitar 0 <= minimo <= maximo <= 30000.")
+    raise ValueError(
+        "Os tempos devem respeitar 0 <= minimo <= maximo <= 30000."
+    )
 
 if not 0 <= ERROR_RATE <= 1:
     raise ValueError("PROCESSING_ERROR_RATE deve estar entre 0 e 1.")
+
+if not 1 <= METRICS_PORT <= 65535:
+    raise ValueError("Porta de metricas invalida.")
 
 RECEIVED = Counter(
     "consumer_events_received_total",
@@ -52,6 +61,10 @@ KAFKA_ERRORS = Counter(
     ["operation"],
 )
 
+# Disponibiliza todas as series antes do primeiro processamento.
+for result in ("success", "simulated_error", "invalid"):
+    PROCESSED.labels(result)
+
 stop = threading.Event()
 
 
@@ -60,36 +73,75 @@ def handle_shutdown(signum, frame):
     stop.set()
 
 
-def validate_event(raw: bytes) -> dict:
-    event = json.loads(raw)
+def reject_constant(value):
+    raise ValueError(f"Constante JSON invalida: {value}")
+
+
+def validate_event(raw: bytes | None) -> dict:
+    if raw is None:
+        raise ValueError("Evento sem conteudo.")
+
+    if len(raw) > MAX_EVENT_BYTES:
+        raise ValueError("Evento acima de 64 KiB.")
+
+    event = json.loads(raw, parse_constant=reject_constant)
 
     if not isinstance(event, dict):
         raise ValueError("O evento deve ser um objeto JSON.")
 
+    expected_fields = {
+        "event_id",
+        "event_type",
+        "occurred_at",
+        "payload",
+    }
+
+    if set(event) != expected_fields:
+        raise ValueError("Campos ausentes ou desconhecidos no evento.")
+
+    if not isinstance(event["event_id"], str):
+        raise ValueError("event_id deve ser um UUID em texto.")
+
     UUID(event["event_id"])
 
-    if not isinstance(event["event_type"], str):
-        raise ValueError("event_type deve ser texto.")
+    event_type = event["event_type"]
 
-    if not isinstance(event["occurred_at"], str):
-        raise ValueError("occurred_at deve ser texto.")
+    if (
+        not isinstance(event_type, str)
+        or len(event_type) > 80
+        or re.fullmatch(
+            r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+",
+            event_type,
+        ) is None
+    ):
+        raise ValueError("event_type possui formato invalido.")
+
+    occurred_at = event["occurred_at"]
+
+    if not isinstance(occurred_at, str):
+        raise ValueError("occurred_at deve ser texto ISO 8601.")
+
+    timestamp = datetime.fromisoformat(occurred_at)
+
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("occurred_at deve informar o fuso horario.")
+
+    event["occurred_at"] = timestamp.astimezone(timezone.utc).isoformat()
 
     if not isinstance(event["payload"], dict):
-        raise ValueError("payload deve ser um objeto.")
+        raise ValueError("payload deve ser um objeto JSON.")
 
     return event
 
 
 def process_message(message) -> bool:
-    """Retorna False quando interrompido, deixando o offset sem commit."""
+    """False indica interrupcao: o offset deve permanecer sem commit."""
     started = time.perf_counter()
 
     try:
         event = validate_event(message.value())
-
         delay = random.uniform(MIN_DELAY_MS, MAX_DELAY_MS) / 1000
 
-        # Permite encerrar durante a espera sem confirmar o evento.
         if stop.wait(delay):
             return False
 
@@ -110,7 +162,14 @@ def process_message(message) -> bool:
                 message.offset(),
             )
 
-    except (ValueError, TypeError, KeyError, UnicodeError):
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        UnicodeError,
+        OverflowError,
+        RecursionError,
+    ):
         PROCESSED.labels("invalid").inc()
         logger.warning(
             "Evento invalido tratado partition=%s offset=%s",
@@ -168,14 +227,17 @@ def main():
             if not process_message(message):
                 break
 
-            # Confirma apenas este evento apos seu tratamento.
+            # Sucesso e erros tratados sao resultados finais.
+            # Esta versao nao implementa reenvio ou DLQ.
             try:
                 partitions = consumer.commit(
                     message=message,
                     asynchronous=False,
                 )
 
-                if partitions and any(p.error for p in partitions):
+                if partitions and any(
+                    partition.error for partition in partitions
+                ):
                     raise RuntimeError(
                         "Kafka retornou erro na confirmacao do offset."
                     )
