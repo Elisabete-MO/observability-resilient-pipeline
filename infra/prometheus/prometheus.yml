@@ -23,8 +23,12 @@ scrape_configs:
 
   - job_name: consumer
     metrics_path: /metrics
-    static_configs:
-      - targets: ["consumer:8001"]
+    dns_sd_configs:
+      - names:
+          - consumer
+        type: A
+        port: 8001
+        refresh_interval: 5s
 
   - job_name: kafka-exporter
     metrics_path: /metrics

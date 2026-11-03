@@ -121,8 +121,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (rate(producer_http_requests_total{job=\"producer\",route=\"/events\"}[$__rate_interval]))",
-          "legendFormat": "HTTP {{status}}",
+          "expr": "sum by (status_code) (rate(http_requests_total{job=\"producer\"}[$__rate_interval]))",
+          "legendFormat": "HTTP {{status_code}}",
           "range": true,
           "editorMode": "code"
         }
@@ -177,7 +177,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(producer_http_request_duration_seconds_bucket{job=\"producer\",route=\"/events\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"producer\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "editorMode": "code"
@@ -188,7 +188,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(producer_http_request_duration_seconds_bucket{job=\"producer\",route=\"/events\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"producer\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "editorMode": "code"
@@ -199,7 +199,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(producer_http_request_duration_seconds_bucket{job=\"producer\",route=\"/events\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"producer\"}[$__rate_interval])))",
           "legendFormat": "p99",
           "range": true,
           "editorMode": "code"
@@ -255,8 +255,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (result) (rate(consumer_events_processed_total{job=\"consumer\"}[$__rate_interval]))",
-          "legendFormat": "{{result}}",
+          "expr": "sum by (status) (rate(kafka_consumer_processed_events_total{job=\"consumer\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
           "range": true,
           "editorMode": "code"
         }
@@ -311,7 +311,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * (sum(rate(consumer_events_processed_total{job=\"consumer\",result!=\"success\"}[$__rate_interval])) or on() (0 * sum(rate(consumer_events_processed_total{job=\"consumer\"}[$__rate_interval])))) / sum(rate(consumer_events_processed_total{job=\"consumer\"}[$__rate_interval]))",
+          "expr": "100 * (sum(rate(kafka_consumer_processed_events_total{job=\"consumer\",status=\"error\"}[$__rate_interval])) or on() (0 * sum(rate(kafka_consumer_processed_events_total{job=\"consumer\"}[$__rate_interval])))) / sum(rate(kafka_consumer_processed_events_total{job=\"consumer\"}[$__rate_interval]))",
           "legendFormat": "Erros",
           "range": true,
           "editorMode": "code"
@@ -367,7 +367,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(kafka_consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "editorMode": "code"
@@ -378,7 +378,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(kafka_consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "editorMode": "code"
@@ -389,7 +389,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kafka_consumer_processing_duration_seconds_bucket{job=\"consumer\"}[$__rate_interval])))",
           "legendFormat": "p99",
           "range": true,
           "editorMode": "code"
@@ -455,7 +455,7 @@
     {
       "id": 8,
       "title": "Lag total",
-      "description": "Soma das tres particoes. So aparece quando todas possuem uma medicao de lag nao negativa.",
+      "description": "Soma do lag das particoes do grupo consumidor.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -501,7 +501,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(kafka_consumergroup_lag{job=\"kafka-exporter\",consumergroup=\"events-processor\",topic=\"raw-events\"} >= 0) and on() (count(kafka_consumergroup_lag{job=\"kafka-exporter\",consumergroup=\"events-processor\",topic=\"raw-events\"} >= 0) == 3)",
+          "expr": "sum(kafka_consumergroup_lag{job=\"kafka-exporter\",consumergroup=\"events-processor\",topic=\"raw-events\"} >= 0)",
           "legendFormat": "Mensagens pendentes",
           "range": true,
           "editorMode": "code"

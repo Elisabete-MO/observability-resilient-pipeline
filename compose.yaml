@@ -11,6 +11,8 @@ services:
       - kafka_data:/tmp/kraft-combined-logs
     mem_limit: 128m
     restart: "no"
+    networks:
+      - messaging-network
 
   kafka:
     image: apache/kafka:4.2.2
@@ -44,8 +46,15 @@ services:
       KAFKA_NUM_PARTITIONS: "3"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_RETENTION_BYTES: "1073741824"
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+
+    security_opt:
+      - no-new-privileges:true
+
+    networks:
+      - messaging-network
 
     volumes:
       - kafka_data:/tmp/kraft-combined-logs
@@ -82,11 +91,23 @@ services:
 
         /opt/kafka/bin/kafka-topics.sh \
           --bootstrap-server kafka:29092 \
+          --create \
+          --if-not-exists \
+          --topic raw-events-dlq \
+          --partitions 3 \
+          --replication-factor 1
+
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:29092 \
           --describe \
           --topic raw-events
 
     mem_limit: 256m
     restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - messaging-network
 
   producer:
     build:
@@ -107,6 +128,17 @@ services:
       - "127.0.0.1:8000:8000"
 
     mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    networks:
+      - messaging-network
+      - observability-network
 
     healthcheck:
       test:
@@ -133,17 +165,29 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: raw-events
+      KAFKA_DLQ_TOPIC: raw-events-dlq
       KAFKA_CONSUMER_GROUP: events-processor
       CONSUMER_METRICS_PORT: "8001"
       PROCESSING_MIN_MS: "50"
       PROCESSING_MAX_MS: "200"
       PROCESSING_ERROR_RATE: "0"
 
-    ports:
-      - "127.0.0.1:8001:8001"
+    expose:
+      - "8001"
 
     mem_limit: 256m
     stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+    networks:
+      - messaging-network
+      - observability-network
 
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.8.0
@@ -160,6 +204,14 @@ services:
       - "--group.filter=^events-processor$$"
 
     mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    networks:
+      - messaging-network
+      - observability-network
 
   prometheus:
     image: prom/prometheus:v3.5.0
@@ -179,6 +231,12 @@ services:
       - "127.0.0.1:9090:9090"
 
     mem_limit: 384m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - observability-network
 
   grafana:
     image: grafana/grafana:12.1.0
@@ -189,6 +247,9 @@ services:
 
     environment:
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin_resilient_2026}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
 
     volumes:
       - grafana_data:/var/lib/grafana
@@ -198,6 +259,12 @@ services:
       - "127.0.0.1:3000:3000"
 
     mem_limit: 384m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - observability-network
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
@@ -215,9 +282,22 @@ services:
       - "127.0.0.1:9093:9093"
 
     mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    networks:
+      - observability-network
 
 volumes:
   kafka_data:
   prometheus_data:
   grafana_data:
   alertmanager_data:
+
+networks:
+  messaging-network:
+    driver: bridge
+  observability-network:
+    driver: bridge

@@ -43,7 +43,9 @@ def main():
         choices=["load", "stress", "spike"],
         default="load",
     )
-    parser.add_argument("--url", default="http://localhost:8000/events")
+    parser.add_argument(
+        "--url", default="http://localhost:8000/api/v1/events"
+    )
     parser.add_argument("--rate", type=positive_int, default=5)
     parser.add_argument("--duration", type=positive_int, default=60)
     parser.add_argument("--workers", type=positive_int, default=10)
@@ -105,7 +107,7 @@ def main():
                 if (
                     response.status == 202
                     and isinstance(body, dict)
-                    and body.get("status") == "published"
+                    and body.get("status") in ("published", "accepted")
                 ):
                     outcome = "confirmed"
 

@@ -9,8 +9,14 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID
 
-from confluent_kafka import Consumer, KafkaError, KafkaException
-from prometheus_client import Counter, Histogram, start_http_server
+from confluent_kafka import (
+    Consumer,
+    KafkaError,
+    KafkaException,
+    Producer,
+    TopicPartition,
+)
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 
 logging.basicConfig(
@@ -21,6 +27,7 @@ logger = logging.getLogger("consumer")
 
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 TOPIC = os.getenv("KAFKA_TOPIC", "raw-events")
+DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "raw-events-dlq")
 GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "events-processor")
 METRICS_PORT = int(os.getenv("CONSUMER_METRICS_PORT", "8001"))
 
@@ -41,29 +48,39 @@ if not 0 <= ERROR_RATE <= 1:
 if not 1 <= METRICS_PORT <= 65535:
     raise ValueError("Porta de metricas invalida.")
 
-RECEIVED = Counter(
-    "consumer_events_received_total",
-    "Eventos recebidos do Kafka.",
-)
+# Metricas obrigatorias conforme Escopo.pdf (Requisito 2)
 PROCESSED = Counter(
-    "consumer_events_processed_total",
-    "Resultados do processamento dos eventos.",
-    ["result"],
+    "kafka_consumer_processed_events_total",
+    "Eventos processados pelo worker.",
+    ["status"],
 )
 DURATION = Histogram(
-    "consumer_processing_duration_seconds",
-    "Duracao das tentativas de processamento.",
-    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
+    "kafka_consumer_processing_duration_seconds",
+    "Tempo total de processamento individual.",
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+LAG_RECORDS = Gauge(
+    "kafka_consumer_lag_records",
+    "Diferenca entre a ultima mensagem do topico e o offset atual.",
+    ["partition"],
 )
 KAFKA_ERRORS = Counter(
-    "consumer_kafka_errors_total",
+    "kafka_consumer_errors_total",
     "Erros de leitura ou confirmacao no Kafka.",
     ["operation"],
 )
+DLQ_EVENTS = Counter(
+    "kafka_consumer_dlq_events_total",
+    "Mensagens isoladas na Dead Letter Queue.",
+    ["reason"],
+)
 
-# Disponibiliza todas as series antes do primeiro processamento.
-for result in ("success", "simulated_error", "invalid"):
-    PROCESSED.labels(result)
+# Inicializa as series obrigatorias
+for status in ("success", "error"):
+    PROCESSED.labels(status=status)
+
+for p in ("0", "1", "2"):
+    LAG_RECORDS.labels(partition=p).set(0)
 
 stop = threading.Event()
 
@@ -134,7 +151,60 @@ def validate_event(raw: bytes | None) -> dict:
     return event
 
 
-def process_message(message) -> bool:
+def update_consumer_lag(consumer: Consumer) -> None:
+    """Calcula o lag entre o high watermark do Kafka e o offset atual por particao."""
+    try:
+        assigned = consumer.assignment()
+        if not assigned:
+            return
+        for tp in assigned:
+            low, high = consumer.get_watermark_offsets(tp, timeout=0.2)
+            positions = consumer.position([tp])
+            current = (
+                positions[0].offset
+                if positions and positions[0].offset >= 0
+                else 0
+            )
+            lag = max(0, high - current)
+            LAG_RECORDS.labels(partition=str(tp.partition)).set(lag)
+    except Exception as exc:
+        logger.debug("Nao foi possivel calcular lag da particao: %s", exc)
+
+
+def send_to_dlq(dlq_producer: Producer | None, message, reason: str) -> None:
+    """Envia o payload corrompido ou com falha irreversivel para a Dead Letter Queue (DLQ)."""
+    DLQ_EVENTS.labels(reason=reason).inc()
+    if dlq_producer is None:
+        return
+    try:
+        headers = [
+            ("x-error-reason", reason.encode("utf-8")),
+            ("x-original-topic", (message.topic() or "").encode("utf-8")),
+            ("x-original-partition", str(message.partition()).encode("utf-8")),
+            ("x-original-offset", str(message.offset()).encode("utf-8")),
+            ("x-failed-at", datetime.now(timezone.utc).isoformat().encode("utf-8")),
+        ]
+        key = message.key()
+        value = message.value() or b""
+        dlq_producer.produce(
+            topic=DLQ_TOPIC,
+            key=key,
+            value=value,
+            headers=headers,
+        )
+        dlq_producer.poll(0)
+        logger.warning(
+            "Mensagem isolada na DLQ topic=%s partition=%s offset=%s reason=%s",
+            DLQ_TOPIC,
+            message.partition(),
+            message.offset(),
+            reason,
+        )
+    except Exception as exc:
+        logger.error("Falha ao publicar mensagem na DLQ: %s", exc)
+
+
+def process_message(message, dlq_producer: Producer | None = None) -> bool:
     """False indica interrupcao: o offset deve permanecer sem commit."""
     started = time.perf_counter()
 
@@ -146,7 +216,8 @@ def process_message(message) -> bool:
             return False
 
         if random.random() < ERROR_RATE:
-            PROCESSED.labels("simulated_error").inc()
+            PROCESSED.labels(status="error").inc()
+            send_to_dlq(dlq_producer, message, "simulated_error")
             logger.warning(
                 "Erro simulado tratado event_id=%s partition=%s offset=%s",
                 event["event_id"],
@@ -154,7 +225,7 @@ def process_message(message) -> bool:
                 message.offset(),
             )
         else:
-            PROCESSED.labels("success").inc()
+            PROCESSED.labels(status="success").inc()
             logger.info(
                 "Processado event_id=%s partition=%s offset=%s",
                 event["event_id"],
@@ -169,13 +240,14 @@ def process_message(message) -> bool:
         UnicodeError,
         OverflowError,
         RecursionError,
-    ):
-        PROCESSED.labels("invalid").inc()
+    ) as exc:
+        PROCESSED.labels(status="error").inc()
+        send_to_dlq(dlq_producer, message, "validation_error")
         logger.warning(
-            "Evento invalido tratado partition=%s offset=%s",
+            "Evento invalido tratado e encaminhado para DLQ partition=%s offset=%s: %s",
             message.partition(),
             message.offset(),
-            exc_info=True,
+            exc,
         )
     finally:
         DURATION.observe(time.perf_counter() - started)
@@ -197,19 +269,35 @@ def main():
         }
     )
 
+    dlq_producer = Producer(
+        {
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "client.id": "consumer-dlq-producer",
+            "acks": "all",
+        }
+    )
+
+    last_lag_update = 0.0
+
     try:
         start_http_server(METRICS_PORT, addr="0.0.0.0")
         consumer.subscribe([TOPIC])
 
         logger.info(
-            "Consumer iniciado topic=%s group=%s metrics_port=%s",
+            "Consumer iniciado topic=%s group=%s dlq=%s metrics_port=%s",
             TOPIC,
             GROUP,
+            DLQ_TOPIC,
             METRICS_PORT,
         )
 
         while not stop.is_set():
-            message = consumer.poll(1.0)
+            now = time.monotonic()
+            if now - last_lag_update >= 1.0:
+                update_consumer_lag(consumer)
+                last_lag_update = now
+
+            message = consumer.poll(0.5)
 
             if message is None:
                 continue
@@ -222,13 +310,10 @@ def main():
                 logger.error("Erro de leitura Kafka: %s", message.error())
                 continue
 
-            RECEIVED.inc()
-
-            if not process_message(message):
+            if not process_message(message, dlq_producer=dlq_producer):
                 break
 
-            # Sucesso e erros tratados sao resultados finais.
-            # Esta versao nao implementa reenvio ou DLQ.
+            # Sucesso e erros tratados tem offsets confirmados apos isolamento
             try:
                 partitions = consumer.commit(
                     message=message,
@@ -249,6 +334,7 @@ def main():
 
     finally:
         consumer.close()
+        dlq_producer.flush(5)
         logger.info("Consumer encerrado")
 
 
