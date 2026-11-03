@@ -15,7 +15,7 @@ flowchart LR
 ```
 
 ## Componentes e Responsabilidades
-- **Producer API:** Ingestão HTTP de eventos via `POST /api/v1/events` e `POST /events`. Validação Pydantic (UUID, timezone, schema), enfileiramento assíncrono no Kafka, rejeição antecipada de payloads > 64 KiB (413), headers de segurança e métricas RED.
+- **Producer API:** Ingestão HTTP de eventos via `POST /api/v1/events` e `POST /events`. Validação Pydantic (UUID, timezone, schema), confirmação assíncrona de persistência no Kafka (`asyncio.Future`), semáforo de concorrência e timeout fail-fast contra DoS/Slowloris, rejeição antecipada de payloads > 64 KiB (413), headers de segurança e métricas RED.
 - **Apache Kafka (KRaft):** Broker de mensageria em modo KRaft com 3 partições no tópico `raw-events` e 3 partições no tópico `raw-events-dlq`. Retenção de 1 GB por partição.
 - **Consumer Worker:** Consumo assíncrono via Consumer Group `events-processor`, simulação de latência de processamento, injeção de falhas determinísticas (`PROCESSING_ERROR_RATE`), envio de poison pills para a DLQ e cálculo dinâmico de lag.
 - **Kafka Exporter:** Exportador nativo do cluster para coleta de partições, offsets e lag do consumer group.

@@ -10,6 +10,12 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from confluent_kafka import KafkaException, Producer
+
+KAFKA_EXCEPTION_TYPES = (
+    (KafkaException, RuntimeError)
+    if isinstance(KafkaException, type) and issubclass(KafkaException, BaseException)
+    else (RuntimeError,)
+)
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -32,6 +38,9 @@ BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 TOPIC = os.getenv("KAFKA_TOPIC", "raw-events")
 MAX_EVENT_BYTES = 64 * 1024
 RATE_LIMIT_RPS = int(os.getenv("PRODUCER_RATE_LIMIT_RPS", "0"))
+WAIT_FOR_ACK = os.getenv("PRODUCER_WAIT_FOR_ACK", "true").lower() in ("true", "1", "yes")
+ACK_TIMEOUT_SECONDS = float(os.getenv("PRODUCER_ACK_TIMEOUT_SECONDS", "2.0"))
+MAX_CONCURRENT_PRODUCES = int(os.getenv("PRODUCER_MAX_CONCURRENT_PRODUCES", "500"))
 
 
 class TokenBucketLimiter:
@@ -138,6 +147,7 @@ async def lifespan(app: FastAPI):
     )
 
     app.state.producer = producer
+    app.state.produce_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PRODUCES)
     worker.start()
 
     try:
@@ -257,7 +267,7 @@ def ready(request: Request):
         ):
             raise HTTPException(503, "Topico Kafka indisponivel.")
 
-    except KafkaException:
+    except KAFKA_EXCEPTION_TYPES:
         raise HTTPException(503, "Kafka indisponivel.") from None
 
     return {"status": "ready", "topic": TOPIC}
@@ -271,7 +281,7 @@ def metrics():
     )
 
 
-def handle_event_ingestion(event: Event, request: Request):
+async def handle_event_ingestion(event: Event, request: Request):
     try:
         encoded = json.dumps(
             event.model_dump(mode="json"),
@@ -292,52 +302,104 @@ def handle_event_ingestion(event: Event, request: Request):
             "O evento deve ter no maximo 64 KiB.",
         )
 
+    # Obter semaforo de concorrencia para controle de backpressure
+    produce_semaphore = getattr(request.app.state, "produce_semaphore", None)
+    if produce_semaphore is None:
+        request.app.state.produce_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PRODUCES)
+        produce_semaphore = request.app.state.produce_semaphore
+
+    # Se a fila de espera do semaforo estiver cheia, falha rapido (backpressure / anti-DoS)
+    if produce_semaphore.locked():
+        raise HTTPException(
+            503,
+            "Producer sobrecarregado (concorrencia maxima de publicacao atingida). Tente novamente.",
+        )
+
     started = time.perf_counter()
+    loop = asyncio.get_running_loop()
+    delivery_future = loop.create_future() if WAIT_FOR_ACK else None
 
     def on_delivery(error, message):
         DELIVERY_DURATION.observe(time.perf_counter() - started)
         if error is not None:
             KAFKA_PRODUCER_ERRORS.inc()
             logger.error("Falha na entrega Kafka para event_id=%s: %s", event.event_id, error)
+            if delivery_future is not None and not delivery_future.done():
+                exc = error if isinstance(error, BaseException) else RuntimeError(str(error))
+                loop.call_soon_threadsafe(
+                    delivery_future.set_exception,
+                    exc,
+                )
         else:
             KAFKA_PUBLISHED_EVENTS.inc()
+            if delivery_future is not None and not delivery_future.done():
+                loop.call_soon_threadsafe(
+                    delivery_future.set_result,
+                    (message.partition(), message.offset()),
+                )
 
-    try:
-        # Enfileiramento assincrono de alta performance no buffer do Kafka
-        request.app.state.producer.produce(
-            topic=TOPIC,
-            key=str(event.event_id),
-            value=encoded,
-            on_delivery=on_delivery,
-        )
-        request.app.state.producer.poll(0)
-    except BufferError:
-        KAFKA_PRODUCER_ERRORS.inc()
-        logger.error("Buffer do Producer cheio para event_id=%s", event.event_id)
-        raise HTTPException(
-            503,
-            "Buffer do Producer cheio.",
-        ) from None
-    except KafkaException as exc:
-        KAFKA_PRODUCER_ERRORS.inc()
-        logger.exception("Falha ao enfileirar no Kafka event_id=%s: %s", event.event_id, exc)
-        raise HTTPException(
-            503,
-            "Nao foi possivel publicar no Kafka.",
-        ) from None
+    async with produce_semaphore:
+        try:
+            request.app.state.producer.produce(
+                topic=TOPIC,
+                key=str(event.event_id),
+                value=encoded,
+                on_delivery=on_delivery,
+            )
+            request.app.state.producer.poll(0)
+        except BufferError:
+            KAFKA_PRODUCER_ERRORS.inc()
+            logger.error("Buffer do Producer cheio para event_id=%s", event.event_id)
+            raise HTTPException(
+                503,
+                "Buffer do Producer cheio.",
+            ) from None
+        except KAFKA_EXCEPTION_TYPES as exc:
+            KAFKA_PRODUCER_ERRORS.inc()
+            logger.exception("Falha ao enfileirar no Kafka event_id=%s: %s", event.event_id, exc)
+            raise HTTPException(
+                503,
+                "Nao foi possivel publicar no Kafka.",
+            ) from None
 
-    return {
-        "status": "published",
-        "event_id": str(event.event_id),
-        "topic": TOPIC,
-    }
+        if not WAIT_FOR_ACK:
+            return {
+                "status": "published",
+                "event_id": str(event.event_id),
+                "topic": TOPIC,
+            }
+
+        try:
+            partition, offset = await asyncio.wait_for(
+                delivery_future,
+                timeout=ACK_TIMEOUT_SECONDS,
+            )
+            return {
+                "status": "published",
+                "event_id": str(event.event_id),
+                "topic": TOPIC,
+                "partition": partition,
+                "offset": offset,
+            }
+        except asyncio.TimeoutError:
+            KAFKA_PRODUCER_ERRORS.inc()
+            logger.error("Timeout aguardando ACK do Kafka para event_id=%s apos %.2fs", event.event_id, ACK_TIMEOUT_SECONDS)
+            raise HTTPException(
+                504,
+                f"Timeout aguardando persistencia do evento no Kafka ({ACK_TIMEOUT_SECONDS}s).",
+            ) from None
+        except KAFKA_EXCEPTION_TYPES as exc:
+            raise HTTPException(
+                503,
+                f"Falha de persistencia no Kafka: {exc}",
+            ) from None
 
 
 @app.post("/api/v1/events", status_code=202)
-def publish_event_v1(event: Event, request: Request):
-    return handle_event_ingestion(event, request)
+async def publish_event_v1(event: Event, request: Request):
+    return await handle_event_ingestion(event, request)
 
 
 @app.post("/events", status_code=202)
-def publish_event(event: Event, request: Request):
-    return handle_event_ingestion(event, request)
+async def publish_event(event: Event, request: Request):
+    return await handle_event_ingestion(event, request)

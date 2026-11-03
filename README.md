@@ -74,6 +74,7 @@ docker compose up -d
 6. **CORS & HTTP Security Headers:** Restrição estrita de origens confiáveis (`CORSMiddleware`) e headers defensivos (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`).
 7. **Rate Limiting Defensivo:** Algoritmo Token Bucket in-memory configurável via `PRODUCER_RATE_LIMIT_RPS`.
 8. **Hardening de Credenciais:** Grafana configurado via variáveis de ambiente com arquivo [.env.example](.env.example) para controle de acesso seguro.
+9. **Garantia de Entrega e Anti-Slowloris no Producer:** Confirmação de persistência no Kafka via `asyncio.Future` antes do `202 Accepted`, com semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) e timeout estrito de 2s, blindando a API contra perda em memória e contra exaustão de conexões.
 
 ### Regras de Alerta (`infra/prometheus/rules/pipeline.yml`)
 1. **`HighConsumerLag` (WARNING):** Lag acumulado do grupo `events-processor` > 500 mensagens por mais de 30 segundos.

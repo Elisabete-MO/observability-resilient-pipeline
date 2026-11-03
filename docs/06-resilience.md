@@ -1,9 +1,11 @@
 # Resiliência e Tolerância a Falhas
 
 ## Mecanismos Implementados
-1. **Publicação Assíncrona e Idempotente no Producer:**
+1. **Confirmação Assíncrona de Entrega e Idempotência no Producer:**
    - Habilitado `enable.idempotence: true` e `acks: all` no Producer, garantindo semântica *at-least-once* sem duplicação de mensagens no broker em falhas de rede transitórias.
-   - Buffer em memória desacoplado (`queue.buffering.max.messages: 100000`).
+   - **Confirmação via `asyncio.Future`:** A API aguarda a persistência confirmada do broker Kafka antes de responder `202 Accepted`, eliminando o risco de perda silenciosa em caso de crash do container (*data loss risk*).
+   - **Proteção contra DoS / Slowloris:** Semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) limitando requisições pendentes com *fail-fast* (`503 Service Unavailable`) e timeout rígido de 2s (`PRODUCER_ACK_TIMEOUT_SECONDS`) retornando `504 Gateway Timeout`.
+   - Modo de alta vazão desativável via `PRODUCER_WAIT_FOR_ACK=false` para cenários de benchmark comparativo.
 2. **Dead Letter Queue (DLQ):**
    - Tópico `raw-events-dlq` particionado para isolar mensagens envenenadas (*poison pills* ou corrupção de schema).
    - Metadados de diagnóstico gravados em headers (`x-error-reason`, `x-original-partition`, `x-original-offset`, `x-failed-at`).
