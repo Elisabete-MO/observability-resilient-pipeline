@@ -8,7 +8,7 @@
 ## Métricas obrigatórias
 Producer: `http_requests_total`, `kafka_producer_published_events_total`, `kafka_producer_errors_total`, `http_request_duration_seconds`.
 Consumer: `kafka_consumer_processed_events_total{status}`, `kafka_consumer_processing_duration_seconds`, `kafka_consumer_lag_records`.
-Cluster: métricas do kafka-exporter de partições, consumer lag e tráfego, conforme suporte efetivo do exporter selecionado.
+Cluster: métricas do kafka-exporter de partições (`kafka_topic_partitions`), lag do grupo (`kafka_consumergroup_lag`) e offsets por partição (`kafka_topic_partition_current_offset`). A auditoria de `danielqsj/kafka-exporter:v1.8.0` confirmou que **bytes trafegados não são expostos**; a lacuna e as alternativas estão em [12-kafka-exporter-audit.md](12-kafka-exporter-audit.md).
 
 ## Dashboard
 Ingestão (req/s), latência p50/p95/p99, lag por partição, processamento vs erros e disponibilidade (`up`).
@@ -21,4 +21,4 @@ Ingestão (req/s), latência p50/p95/p99, lag por partição, processamento vs e
 - Evitar labels por event_id, order_id ou payload.
 - Percentis devem vir de Histogram, não de média.
 - O lag do Consumer e o lag do exporter podem diferir por definição/tempo de coleta; documentar fonte de verdade.
-- Verificar suporte a métricas de bytes trafegados: kafka-exporter sozinho pode não expor todos os bytes exigidos, podendo requerer exporter/JMX adicional.
+- Bytes trafegados: o kafka-exporter sozinho não expõe essas métricas; seria necessário JMX Exporter no broker ou outro exporter. Decisão mantida como lacuna documentada, sem adicionar ferramenta nesta entrega.

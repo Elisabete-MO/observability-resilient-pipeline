@@ -2,7 +2,7 @@
 
 Pipeline de processamento distribuído orientado a eventos (**EDA**) construído com **Apache Kafka**, instrumentado sob o padrão **RED** (Rate, Errors, Duration) com **Prometheus**, visualização em tempo real via **Grafana**, gestão de incidentes no **Alertmanager** e suíte de benchmarks/testes em **Python**.
 
-> **Status:** Concluído e pronto para entrega / defesa.
+> **Status:** Concluído para entrega / defesa, com lacuna documentada de bytes trafegados no Kafka Exporter ([auditoria](docs/12-kafka-exporter-audit.md)).
 
 ---
 
@@ -63,7 +63,13 @@ docker compose up -d
 * `kafka_consumer_processed_events_total{status="success|error"}` (Counter): Eventos processados.
 * `kafka_consumer_processing_duration_seconds` (Histogram): Duração do processamento.
 * `kafka_consumer_lag_records{partition}` (Gauge): Distância entre o high watermark e o offset atual.
-* `kafka_consumer_dlq_events_total{reason}` (Counter): Mensagens não-processáveis isoladas na Dead Letter Queue.
+* `kafka_consumer_dlq_events_total{reason}` (Counter): Mensagens não-processáveis isoladas na Dead Letter Queue (incrementado somente após o ACK do broker).
+
+### Cluster Kafka (Kafka Exporter)
+* `kafka_topic_partitions{topic="raw-events"}`: quantidade de partições.
+* `kafka_topic_partition_current_offset` / `_oldest_offset`: offsets por partição.
+* `kafka_consumergroup_lag{consumergroup="events-processor"}`: lag do consumer group.
+* **Lacuna:** bytes trafegados não são expostos pelo `kafka-exporter:v1.8.0`. Detalhes em [docs/12-kafka-exporter-audit.md](docs/12-kafka-exporter-audit.md).
 
 ### Segurança e Resiliência Implementadas (Defense in Depth)
 1. **Proteção contra DoS / OOM (CWE-400):** Middleware no Producer intercepta requisições com `Content-Length > 64 KiB` antes de alocar memória ou fazer parse do JSON, retornando `413 Payload Too Large`.
@@ -90,13 +96,13 @@ Foram criados scripts automatizados de um comando para reproduzir cada cenário 
 ```bash
 ./benchmarks/scenarios/simulate_lag.sh
 ```
-* **O que demonstra:** Injeta carga de 50 req/s gerando lag > 500; o alerta `HighConsumerLag` transiciona para `FIRING`; o script escala para 3 consumidores (`--scale consumer=3`), as partições são rebalanceadas, o lag drena rapidamente e o alerta se resolve.
+* **O que demonstra:** Injeta 60 req/s por 35 s (~2100 eventos) com 1 consumer, mantendo o lag acima de 500 por mais de 30 s mesmo no limite otimista de consumo (20 msg/s); o alerta `HighConsumerLag` transiciona para `FIRING`; o script escala para 3 consumidores (`--scale consumer=3`), as partições são rebalanceadas, o lag drena rapidamente e o alerta se resolve.
 
 ### Cenário B: Injeção de Erros & Diagnóstico de Causa Raiz
 ```bash
 ./benchmarks/scenarios/simulate_errors.sh
 ```
-* **O que demonstra:** Configura injeção de 20% de erros no processamento (`PROCESSING_ERROR_RATE=0.20`); a taxa supera o limiar de 5%; o alerta `HighErrorRate` entra em estado `FIRING`; restaura a taxa para zero e o alerta é resolvido.
+* **O que demonstra:** Configura injeção de 20% de erros no processamento via `${PROCESSING_ERROR_RATE}` (`--scale consumer=1 --force-recreate` + validação por `printenv`), envia 60 s de tráfego (~600 eventos) e a taxa supera o limiar de 5%; o alerta `HighErrorRate` entra em estado `FIRING`; restaura a taxa para zero e envia tráfego de recuperação por mais de 2 minutos para limpar a janela móvel e resolver o alerta.
 
 ---
 
@@ -128,6 +134,7 @@ Consulte a pasta [`docs/`](docs/) para especificações técnicas complementares
 * [Plano de Observabilidade](docs/05-observability.md)
 * [Estratégia de Resiliência](docs/06-resilience.md)
 * [Checklist de Entrega](docs/10-delivery-checklist.md)
+* [Auditoria do Kafka Exporter](docs/12-kafka-exporter-audit.md)
 
 
 
