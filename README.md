@@ -1,226 +1,114 @@
 # Observability & Resilient Pipeline
 
-Pipeline de processamento distribuído orientado a eventos (**EDA**) construído com **Apache Kafka**, instrumentado sob o padrão **RED** (Rate, Errors, Duration) com **Prometheus**, visualização em tempo real via **Grafana**, gestão de incidentes no **Alertmanager** e suíte de benchmarks/testes em **Python**.
+Pipeline orientado a eventos que demonstra, de ponta a ponta, ingestão,
+processamento e observabilidade. A API FastAPI recebe eventos, publica no Apache
+Kafka e o consumer processa a fila. O Prometheus coleta as métricas, o Grafana
+exibe os dashboards e o Alertmanager concentra os alertas.
 
-> **Status (11/11/2026):** documentação revisada para a defesa de 13/11/2026. A suíte unitária tem 52 testes aprovados; o provisionamento do Grafana e os dois alertas foram validados manualmente em Docker. Os scripts de cenário ainda não foram executados de ponta a ponta no host da apresentação. Bytes trafegados são coletados via JMX Exporter ([auditoria](docs/12-kafka-exporter-audit.md)).
+O ponto de entrada do projeto é a **Central de Acesso**, uma página local gerada
+pelo script de inicialização. É por ela que você chega ao Grafana, ao Prometheus,
+ao Alertmanager e à documentação da API.
 
----
+## Pré-requisitos
 
-## 1. Arquitetura da Solução
+* Windows com PowerShell 5.1+.
+* Docker Desktop aberto e com o engine em execução (Docker Compose v2).
+* Repositório clonado, com os comandos executados na raiz e na branch
+  `Development`.
+* Python 3.10+ apenas para o teste de carga opcional. A pilha sobe sem ele.
 
-```text
-Simulador / Benchmark (Python)
-            │
-            ▼ HTTP POST /api/v1/events (202 Accepted)
-     [Producer API] ──── /metrics ────┐
-            │                         │
-            ▼ Publicação assíncrona   │
-     [Apache Kafka]                   ├────► [Prometheus] ────► [Grafana: 3000]
-      (raw-events)                    │         │
-            │                         │         ▼
-            ▼                         ├────► [Alertmanager: 9093]
-    [Consumer Worker] ── /metrics ────┤
-      (events-processor)              │
-            │ (poison pills / errors) │
-            ▼                         │
-     [raw-events-dlq]                 │
-            ▲                         │
-    [Kafka Exporter] ─── /metrics ────┘
-```
+## Iniciar o projeto
 
----
-
-## 2. Inicialização Rápida (Windows)
-
-### Pré-requisitos
-* Docker Desktop com Docker Compose.
-* Python 3.10+ apenas para executar o gerador de carga no host. Os testes
-  unitários podem ser executados em container, sem Python local.
-
-### Método principal: script versionado
-A partir da raiz do repositório, na branch `Development`:
+Na raiz do repositório, execute:
 
 ```powershell
-.\start-pipeline.ps1 -OpenBrowser
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-pipeline.ps1 -OpenBrowser
 ```
 
-O `start-pipeline.ps1` é o script de inicialização versionado do projeto. Ele
-verifica Docker/Compose, cria o `.env` a partir de `.env.example` quando
-necessário, solicita as senhas com entrada oculta, valida a configuração, sobe
-os serviços sem apagar volumes e confere endpoints, targets e o encerramento do
-provisionador do `viewer`. Após alterar código, use `.\start-pipeline.ps1 -Build`.
+Na primeira execução, ou se alguma credencial estiver faltando, o script cria o
+`.env` local e solicita:
 
-### Alternativa manual
-```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-# edite o .env e preencha GF_ADMIN_USER, GF_ADMIN_PASSWORD e GF_VIEWER_PASSWORD
-docker compose up -d
-```
+* `GF_ADMIN_USER` — usuário administrador do Grafana;
+* `GF_ADMIN_PASSWORD` — senha desse administrador;
+* `GF_VIEWER_PASSWORD` — senha do usuário de demonstração `viewer`.
 
-O Compose não possui fallback de credenciais. Se alguma variável obrigatória
-estiver ausente ou vazia, `docker compose up -d` falha com mensagem clara antes
-de iniciar o Grafana. O serviço one-shot `grafana-viewer-provisioner` aguarda o
-Grafana ficar saudável, provisiona o usuário `viewer` e encerra com código `0`.
+As senhas são digitadas com entrada oculta e confirmação, não aparecem no
+histórico de comandos e são gravadas apenas no `.env` local, que é ignorado pelo
+Git. Não há credenciais padrão no repositório.
 
-### Credenciais do Grafana
-* **Administrador:** `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD`. Cada instalação pode
-  definir sua própria senha administrativa; não há senha padrão no repositório.
-* **Viewer:** usuário `viewer`, criado automaticamente na organização 1 com o
-  papel `Viewer` (somente leitura de dashboards; não edita dashboards nem acessa
-  a administração). A senha é uma **credencial compartilhada de demonstração**,
-  definida localmente em `GF_VIEWER_PASSWORD`; não é uma senha individual por
-  integrante e não deve ser reutilizada fora do ambiente local.
-* Acesso anônimo e cadastro público permanecem desabilitados.
+Depois de subir os serviços e verificar a saúde do ambiente, o script abre
+automaticamente a **Central de Acesso**. A primeira execução pode levar alguns
+minutos, enquanto o Kafka e os demais serviços iniciam. Se o terminal indicar
+pendências, a própria central mostra o estado dos serviços e o guia técnico
+explica como diagnosticar.
 
-### Persistência de usuários
-Os usuários do Grafana ficam no volume nomeado `grafana_data`
-(`/var/lib/grafana`). Em uma instalação nova (volume vazio), o administrador é
-criado com `GF_ADMIN_USER`/`GF_ADMIN_PASSWORD` e o `viewer` pelo provisionador
-com `GF_VIEWER_PASSWORD`. Em reinicializações com volume existente, as senhas já
-gravadas são preservadas: alterar o `.env` **não** redefine a senha do
-administrador nem a de um `viewer` já existente. `docker compose down` preserva
-os volumes; `docker compose down -v` apaga os dados e está documentado como
-procedimento destrutivo separado no guia.
+## Central de Acesso e principais ferramentas
 
-O passo a passo completo, incluindo comandos de verificação, está em
-[`docs/guia-execucao-observability.md`](docs/guia-execucao-observability.md).
+A Central é um relatório local da inicialização, com o resumo das verificações,
+o estado dos seis targets e atalhos para as ferramentas. Ela não substitui o
+Grafana: funciona como a porta de entrada do ambiente.
 
-### URLs de Acesso
-| Serviço | URL | Descrição / Credenciais |
+| Ferramenta | Para que serve | Endereço |
 |---|---|---|
-| **Producer API** | `http://localhost:8000` | Ingestão HTTP (`/api/v1/events`, `/health`, `/metrics`) |
-| **Prometheus** | `http://localhost:9090` | Coleta de métricas e avaliação de regras (intervalo 5s) |
-| **Grafana** | `http://localhost:3000` | Dashboard auto-provisionado; login obrigatório (admin local ou `viewer`) |
-| **Alertmanager** | `http://localhost:9093` | Painel de alertas ativos e silenciamentos |
+| **Central de Acesso** | Ponto de partida e estado da inicialização | Aberta pelo script |
+| **Grafana** | Dashboard do pipeline, com taxa, latência, erros, lag e alertas | http://localhost:3000 |
+| **Prometheus** | Consultas e verificação dos targets | http://localhost:9090 |
+| **Alertmanager** | Alertas ativos e silenciamentos | http://localhost:9093 |
+| **FastAPI** | Documentação interativa da API de ingestão | http://localhost:8000/docs |
 
----
+## Login no Grafana
 
-## 3. Conformidade das Métricas (Padrão RED)
+* **Administrador:** use `GF_ADMIN_USER` e `GF_ADMIN_PASSWORD`, definidos na
+  primeira execução.
+* **Viewer:** usuário `viewer`, com papel `Viewer` na organização 1. Ele pode
+  visualizar dashboards, mas não editar nem acessar configurações
+  administrativas. A senha é `GF_VIEWER_PASSWORD`, uma credencial compartilhada
+  de demonstração definida localmente.
 
-### Producer API (`http://localhost:8000/metrics`)
-* `http_requests_total{status_code, method}` (Counter): Taxa de requisições recebidas.
-* `kafka_producer_published_events_total` (Counter): Mensagens entregues com sucesso ao Kafka.
-* `kafka_producer_errors_total` (Counter): Falhas de publicação ou buffer cheio.
-* `http_request_duration_seconds` (Histogram): Latência HTTP para percentis p50, p95 e p99.
+As contas ficam no volume `grafana_data`. Em uma instalação já existente,
+alterar o `.env` não redefine senhas já gravadas. O guia técnico descreve a
+persistência e a limpeza do ambiente.
 
-### Consumer Worker
-* `kafka_consumer_processed_events_total{status="success|error"}` (Counter): Eventos processados.
-* `kafka_consumer_processing_duration_seconds` (Histogram): Duração do processamento.
-* `kafka_consumer_lag_records{partition}` (Gauge): Distância entre o high watermark e o offset atual.
-* `kafka_consumer_dlq_events_total{reason}` (Counter): Mensagens não-processáveis isoladas na Dead Letter Queue (incrementado somente após o ACK do broker).
+## Como observar o pipeline
 
-### Cluster Kafka (Kafka Exporter)
-* `kafka_topic_partitions{topic="raw-events"}`: quantidade de partições.
-* `kafka_topic_partition_current_offset` / `_oldest_offset`: offsets por partição.
-* `kafka_consumergroup_lag{consumergroup="events-processor"}`: lag do consumer group.
+1. Abra a Central de Acesso e escolha **Grafana** para entrar no dashboard.
+2. No **Prometheus**, confirme em `/targets` que os alvos estão `UP`.
+3. Opcionalmente, gere carga com o teste simples abaixo.
+4. Acompanhe no dashboard a taxa de requisições, a latência, os erros, o lag do
+   consumer e o estado dos alertas. Use o **Alertmanager** para ver os alertas
+   ativos.
 
-### Cluster Kafka (JMX Exporter)
-* `kafka_server_brokertopicmetrics_bytesin_total`: bytes recebidos pelo broker (contador; use `rate()` para bytes/s).
-* `kafka_server_brokertopicmetrics_bytesout_total`: bytes enviados pelo broker (contador; use `rate()` para bytes/s).
-* As séries por tópico incluem `topic="raw-events"` / `raw-events-dlq`; o agregado do broker não tem esse label. Detalhes em [docs/12-kafka-exporter-audit.md](docs/12-kafka-exporter-audit.md).
+## Teste simples e opcional
 
-### Controles de Segurança e Resiliência Implementados
-1. **Mitigação de payloads grandes (CWE-400):** middleware no Producer intercepta requisições com `Content-Length > 64 KiB` antes de alocar memória ou fazer parse do JSON, retornando `413 Payload Too Large`.
-2. **Dead Letter Queue (DLQ):** tópico `raw-events-dlq` armazena mensagens com falha irreversível (poison pills) com metadados de diagnóstico (`x-error-reason`, `x-original-offset`, `x-failed-at`).
-3. **Segmentação de redes Docker (isolamento parcial, não Zero Trust):** divisão entre `messaging-network` (dados de mensageria) e `observability-network` (Prometheus/Grafana), reduzindo a exposição entre os planos. Não há autenticação mútua, autorização por identidade nem criptografia entre containers; portanto, isso não caracteriza uma arquitetura Zero Trust.
-4. **Hardening básico de containers (não é certificação CIS):** diretivas `security_opt: [no-new-privileges:true]`, descarte de capabilities com `cap_drop: [ALL]` e sistema de arquivos raiz somente-leitura (`read_only: true`) com `tmpfs: /tmp` nas aplicações.
-5. **Contenção de armazenamento no Kafka:** limite de 1 GB por partição (`KAFKA_LOG_RETENTION_BYTES`), reduzindo o risco de exaustão de disco no host.
-6. **CORS restrito e headers HTTP defensivos:** `CORSMiddleware` limitado às origens locais do Grafana e headers `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` e `X-XSS-Protection`. A API não possui autenticação de usuários; CORS não substitui controle de acesso.
-7. **Rate limiting defensivo:** algoritmo Token Bucket em memória, configurável via `PRODUCER_RATE_LIMIT_RPS` (desabilitado por padrão).
-8. **Gestão de credenciais do Grafana:** sem senhas padrão no repositório; credenciais obrigatórias vêm do `.env` local e o Compose falha fechado se estiverem ausentes. O `viewer` é provisionado via Admin API, sem acesso anônimo ou cadastro público.
-9. **Confirmação de entrega e backpressure no Producer:** confirmação de persistência no Kafka via `asyncio.Future` antes do `202 Accepted`, com semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) e timeout de 2 s. Isso reduz o risco de perda silenciosa e de exaustão de conexões, mas não é uma garantia absoluta de entrega sob qualquer falha.
-
-### Regras de Alerta (`infra/prometheus/rules/pipeline.yml`)
-1. **`HighConsumerLag` (WARNING):** Lag acumulado do grupo `events-processor` > 500 mensagens por mais de 30 segundos.
-2. **`HighErrorRate` (CRITICAL):** Taxa de erros de processamento do Consumer > 5% em janela móvel de 2 minutos.
-
----
-
-## 4. Roteiro para Defesa Prática (15% da Nota)
-
-Os scripts de cenário são Bash/POSIX e não são PowerShell nativos. Eles devem
-ser executados em um ambiente com `bash`, `python3`, `docker` e `curl`; no
-Windows, use WSL/Git Bash ou execute os passos manualmente, como descrito no
-[guia de execução](docs/guia-execucao-observability.md).
-
-### Cenário A: Acúmulo de Lag & Rebalanceamento Dinâmico
-```bash
-./benchmarks/scenarios/simulate_lag.sh
-```
-* **O que o script faz:** planeja 60 req/s por 35 s, ou seja, **2.100 submissões
-  planejadas** com 1 consumer. O gerador pode descartar requisições
-  (`skipped_busy`/`skipped_late`); em uma execução anterior foram submetidas
-  **680 de 2.100**. Portanto, 2.100 não representa a quantidade de eventos
-  efetivamente enviados nem publicados. O script verifica o lag e o alerta
-  `HighConsumerLag`, escala para 3 consumidores (`--scale consumer=3`) e
-  acompanha a drenagem. O `FIRING` depende da carga realmente submetida e do
-  ambiente; se não ocorrer, o script emite aviso.
-
-### Cenário B: Injeção de Erros & Diagnóstico de Causa Raiz
-```bash
-./benchmarks/scenarios/simulate_errors.sh
-```
-* **O que o script faz:** configura 20% de erros no processamento via
-  `${PROCESSING_ERROR_RATE}` (`--scale consumer=1 --force-recreate` e validação
-  por `printenv`), planeja 600 submissões em 60 s e espera que a taxa supere o
-  limiar de 5% na janela de 2 min. O número efetivamente submetido pode ser
-  menor. Em seguida, restaura a taxa para zero e envia tráfego de recuperação
-  por mais de 2 minutos para limpar a janela móvel e resolver o alerta.
-
-> **Estado de validação:** os dois alertas e o provisionamento do Grafana foram
-> verificados **manualmente** em Docker. Os scripts `.sh` ainda **não foram
-> executados de ponta a ponta** no host da apresentação. Registre as evidências
-> na máquina da defesa. Ver [relatório de correções](docs/13-delivery-fixes-report.md).
-
----
-
-## 5. Testes Automatizados e Benchmarks
-
-### Executar testes unitários (52 testes)
-Método reproduzido nesta revisão, sem depender do Python do host:
+Com a pilha em execução e Python 3.10+ instalado no host, execute na raiz:
 
 ```powershell
-docker run --rm -v "${PWD}:/work" -w /work python:3.13-slim python -m unittest discover -s tests -p "test_*.py" -v
+python --version
+python benchmarks/load_test.py --scenario load --rate 5 --duration 20 --workers 10
 ```
 
-Se houver Python 3.10+ instalado no host, o comando equivalente é
-`python -m unittest discover -s tests -p "test_*.py" -v`.
+Esse teste envia eventos válidos e não provoca falhas intencionais. O relatório
+distingue requisições planejadas, submetidas e confirmadas; nem toda requisição
+planejada chega a ser enviada. Para cenários de lag e de erros, consulte o guia
+técnico.
 
-**Resultado desta revisão:** 52 testes executados, todos aprovados. A suíte é
-unitária: valida módulos, configuração e documentação, mas **não** sobe a pilha
-Docker nem executa os cenários de integração de ponta a ponta.
+## Encerrar o ambiente
 
-### Executar teste de carga customizado
-O gerador exige Python 3.10+ no host e usa apenas a biblioteca padrão.
-
-```bash
-# Teste de carga estável (steady)
-python benchmarks/load_test.py --scenario load --rate 20 --duration 30
-
-# Teste de estresse progressivo (steps de carga)
-python benchmarks/load_test.py --scenario stress --rate 10 --duration 30
-
-# Teste de surto repentino (spike)
-python benchmarks/load_test.py --scenario spike --rate 10 --duration 30
+```powershell
+docker compose stop
 ```
 
-O relatório distingue `scheduled` (planejadas), `submitted` (efetivamente
-submetidas), `skipped_busy`/`skipped_late` (descartadas pelo gerador) e
-`confirmed` (respostas confirmadas). Não trate `scheduled` como eventos
-publicados.
+Esse comando preserva os volumes, incluindo usuários e histórico. Para iniciar
+novamente, execute o mesmo comando de inicialização apresentado acima.
 
----
+## Documentação da equipe
 
-## 6. Documentação Detalhada
-Consulte a pasta [`docs/`](docs/) para especificações técnicas complementares:
-* [Guia rápido de execução (Windows)](docs/guia-execucao-observability.md)
-* [Requisitos e Critérios de Aceite](docs/03-requirements.md)
-* [Contrato de Eventos](docs/04-event-contract.md)
-* [Plano de Observabilidade](docs/05-observability.md)
-* [Estratégia de Resiliência](docs/06-resilience.md)
-* [Checklist de Entrega](docs/10-delivery-checklist.md)
-* [Auditoria do Kafka Exporter](docs/12-kafka-exporter-audit.md)
-* [Provisionamento do usuário Viewer no Grafana](docs/15-grafana-viewer-provisioning-report.md)
+O [guia técnico da equipe](docs/guia-execucao-observability.md) detalha o
+funcionamento do script, a Central de Acesso, o provisionamento do `viewer`,
+diagnóstico, testes automatizados, testes de carga, cenários de lag e erros,
+limitações e limpeza destrutiva.
 
-
-
+> **Estado de validação (11/11/2026):** a suíte unitária tem 52 testes
+> aprovados. O provisionamento do Grafana e os dois alertas foram validados
+> manualmente em Docker. Os scripts de cenário em Bash ainda não foram
+> executados de ponta a ponta no host da apresentação.
