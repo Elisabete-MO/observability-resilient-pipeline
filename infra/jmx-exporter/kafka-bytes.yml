@@ -1,0 +1,31 @@
+# Fonte: MBeans kafka.server:type=BrokerTopicMetrics,name=BytesInPerSec
+# e kafka.server:type=BrokerTopicMetrics,name=BytesOutPerSec.
+# O atributo Count e um contador cumulativo; use rate() no Prometheus.
+lowercaseOutputName: true
+
+hostPort: kafka:9999
+username: ""
+password: ""
+
+rules:
+  # Bytes por topico (quando o broker expoe a dimensao topic).
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec, topic=(.+)><>Count'
+    name: kafka_server_brokertopicmetrics_bytesin_total
+    type: COUNTER
+    labels:
+      topic: "$1"
+
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec, topic=(.+)><>Count'
+    name: kafka_server_brokertopicmetrics_bytesout_total
+    type: COUNTER
+    labels:
+      topic: "$1"
+
+  # Agregado do broker (sem label de topico).
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_bytesin_total
+    type: COUNTER
+
+  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>Count'
+    name: kafka_server_brokertopicmetrics_bytesout_total
+    type: COUNTER

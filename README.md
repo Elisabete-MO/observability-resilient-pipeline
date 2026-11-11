@@ -2,7 +2,7 @@
 
 Pipeline de processamento distribuído orientado a eventos (**EDA**) construído com **Apache Kafka**, instrumentado sob o padrão **RED** (Rate, Errors, Duration) com **Prometheus**, visualização em tempo real via **Grafana**, gestão de incidentes no **Alertmanager** e suíte de benchmarks/testes em **Python**.
 
-> **Status:** Concluído para entrega / defesa, com lacuna documentada de bytes trafegados no Kafka Exporter ([auditoria](docs/12-kafka-exporter-audit.md)).
+> **Status:** Concluído para entrega / defesa, com bytes trafegados coletados via JMX Exporter ([auditoria](docs/12-kafka-exporter-audit.md)).
 
 ---
 
@@ -69,7 +69,11 @@ docker compose up -d
 * `kafka_topic_partitions{topic="raw-events"}`: quantidade de partições.
 * `kafka_topic_partition_current_offset` / `_oldest_offset`: offsets por partição.
 * `kafka_consumergroup_lag{consumergroup="events-processor"}`: lag do consumer group.
-* **Lacuna:** bytes trafegados não são expostos pelo `kafka-exporter:v1.8.0`. Detalhes em [docs/12-kafka-exporter-audit.md](docs/12-kafka-exporter-audit.md).
+
+### Cluster Kafka (JMX Exporter)
+* `kafka_server_brokertopicmetrics_bytesin_total`: bytes recebidos pelo broker (contador; use `rate()` para bytes/s).
+* `kafka_server_brokertopicmetrics_bytesout_total`: bytes enviados pelo broker (contador; use `rate()` para bytes/s).
+* As séries por tópico incluem `topic="raw-events"` / `raw-events-dlq`; o agregado do broker não tem esse label. Detalhes em [docs/12-kafka-exporter-audit.md](docs/12-kafka-exporter-audit.md).
 
 ### Segurança e Resiliência Implementadas (Defense in Depth)
 1. **Proteção contra DoS / OOM (CWE-400):** Middleware no Producer intercepta requisições com `Content-Length > 64 KiB` antes de alocar memória ou fazer parse do JSON, retornando `413 Payload Too Large`.

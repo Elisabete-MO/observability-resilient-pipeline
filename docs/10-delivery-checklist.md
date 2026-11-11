@@ -5,10 +5,10 @@
 - [x] Consumer processa eventos no grupo configurado (`events-processor`).
 - [x] Endpoints `/metrics` expõem métricas obrigatórias (`http_requests_total`, `kafka_consumer_lag_records`, etc.).
 - [x] Kafka Exporter fornece métricas de partições e lag verificadas.
-- [ ] Bytes trafegados pelo Kafka: lacuna confirmada no `kafka-exporter:v1.8.0` e documentada em `docs/12-kafka-exporter-audit.md` (sem exporter adicional nesta entrega).
+- [x] Bytes trafegados pelo Kafka: coletados via JMX Exporter (`kafka_server_brokertopicmetrics_bytesin_total` e `_bytesout_total`), com scrape de 5 s e painel no Grafana; Kafka Exporter preservado.
 - [x] Prometheus coleta targets em intervalo de 5 s com suporte a escala de consumers via `dns_sd_configs`.
 - [x] Grafana provisiona dashboard automaticamente (`pipeline.json`).
-- [x] Dashboard apresenta ingestão, percentis (p50/p95/p99), lag por partição, consumo/erros e saúde (`up`).
+- [x] Dashboard apresenta ingestão, percentis (p50/p95/p99), lag por partição, consumo/erros, tráfego em bytes/s e saúde (`up`).
 - [x] HighConsumerLag dispara e resolve em cenário controlado (`simulate_lag.sh`).
 - [x] HighErrorRate dispara e resolve em cenário controlado (`simulate_errors.sh`).
 - [x] Benchmark produz resultados reproduzíveis com percentis calculados.

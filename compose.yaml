@@ -50,6 +50,13 @@ services:
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
 
+      # JMX remoto para o JMX Exporter coletar BytesInPerSec/BytesOutPerSec.
+      KAFKA_JMX_PORT: "9999"
+      KAFKA_JMX_HOSTNAME: "kafka"
+
+    expose:
+      - "9999"
+
     security_opt:
       - no-new-privileges:true
 
@@ -213,6 +220,36 @@ services:
     cap_drop:
       - ALL
     read_only: true
+    networks:
+      - messaging-network
+      - observability-network
+
+  jmx-exporter:
+    image: bitnami/jmx-exporter@sha256:bbfd383a68c5b94db03d3c07c5d74fea3c88b8776aac1533a23b2ed8da6aad8a
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    command:
+      - "5556"
+      - "/config/kafka-bytes.yml"
+
+    volumes:
+      - ./infra/jmx-exporter/kafka-bytes.yml:/config/kafka-bytes.yml:ro
+
+    expose:
+      - "5556"
+
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+
     networks:
       - messaging-network
       - observability-network

@@ -58,7 +58,7 @@ docker compose logs consumer --tail=50
 docker compose logs -f
 ```
 
-No Prometheus, confirme que os alvos essenciais (`producer`, `consumer`, `kafka-exporter`, `prometheus`) estão em estado `UP` antes dos testes.
+No Prometheus, confirme que os alvos essenciais (`producer`, `consumer`, `kafka-exporter`, `kafka-jmx`, `prometheus`) estão em estado `UP` antes dos testes.
 
 ## 5. Teste de carga pelo PowerShell
 

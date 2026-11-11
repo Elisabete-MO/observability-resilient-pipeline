@@ -692,6 +692,95 @@
       "title": "HighErrorRate — Estado do alerta",
       "type": "state-timeline",
       "description": "Histórico do estado FIRING do alerta HighErrorRate; 1 = FIRING, 0 = sem alerta FIRING."
+    },
+    {
+      "id": 11,
+      "title": "Trafego Kafka (bytes/s)",
+      "description": "Bytes recebidos e enviados pelo broker Kafka, coletados via JMX Exporter. Use rate() sobre os contadores BytesInPerSec/BytesOutPerSec.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesin_total{job=\"kafka-jmx\", topic=\"\"}[$__rate_interval]))",
+          "legendFormat": "Recebidos (broker)",
+          "range": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesout_total{job=\"kafka-jmx\", topic=\"\"}[$__rate_interval]))",
+          "legendFormat": "Enviados (broker)",
+          "range": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesin_total{job=\"kafka-jmx\", topic=\"raw-events\"}[$__rate_interval]))",
+          "legendFormat": "Recebidos (raw-events)",
+          "range": true,
+          "editorMode": "code"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(kafka_server_brokertopicmetrics_bytesout_total{job=\"kafka-jmx\", topic=\"raw-events\"}[$__rate_interval]))",
+          "legendFormat": "Enviados (raw-events)",
+          "range": true,
+          "editorMode": "code"
+        }
+      ]
     }
   ]
 }

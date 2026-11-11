@@ -1,6 +1,6 @@
 # Plano de Testes Automatizados
  
-A suíte é composta por 32 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
+A suíte é composta por 39 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
  
 1. **Validação de Contrato (`tests/test_consumer_validation.py` - 7 testes):**
    - Payload válido, regex de tipo de evento, timezone UTC obrigatório, campos extras proibidos (`extra="forbid"`), formato UUIDv4, limite de 64 KiB e tratamento de JSON corrompido.
@@ -14,6 +14,8 @@ A suíte é composta por 32 testes automatizados em `tests/`, executáveis diret
    - Interpolação de `PROCESSING_ERROR_RATE`/`PROCESSING_MIN_MS`/`PROCESSING_MAX_MS`, recriação e verificação do valor aplicado nos cenários, janela de recuperação de 2 minutos e filtros do Kafka Exporter.
 6. **Cenário de Lag (`tests/test_lag_scenario.py` - 5 testes):**
    - Modelo matemático conservador que confirma carga acima da capacidade do consumer, lag > 500 por mais de 30 s e permanência acima do limiar no instante da verificação do alerta; valida também que o cenário inicia com 1 réplica e sem injeção de erros e que aguarda os estados FIRING/resolução.
+7. **Métricas de Bytes do Kafka (`tests/test_kafka_bytes_metrics.py` - 7 testes):**
+   - JMX remoto habilitado no broker, sidecar JMX Exporter fixado por digest, mapeamento real de `BytesInPerSec`/`BytesOutPerSec`, scrape de 5 s, preservação do Kafka Exporter, painel de tráfego em `Bps` no Grafana (mantendo os 10 painéis anteriores) e documentação dos nomes reais das métricas.
 
 ### Comando de Execução
 ```bash
