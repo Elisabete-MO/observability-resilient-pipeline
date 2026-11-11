@@ -35,8 +35,9 @@ class TestGrafanaViewerProvisioning(unittest.TestCase):
         cls.provisioner = load_provisioner()
 
     def test_known_admin_credentials_are_not_published(self):
+        legacy_password = "admin_" + "resilient_" + "2026"
         for content in (self.compose, self.env_example):
-            self.assertNotIn("admin_resilient_2026", content)
+            self.assertNotIn(legacy_password, content)
             self.assertNotIn("GF_ADMIN_PASSWORD:-", content)
             self.assertNotIn("GF_ADMIN_USER:-", content)
 
@@ -116,8 +117,9 @@ class TestGrafanaViewerProvisioning(unittest.TestCase):
         self.assertEqual(message, "falha *** e ***")
 
     def test_docs_do_not_publish_default_admin_password(self):
+        legacy_password = "admin_" + "resilient_" + "2026"
         for content in (self.readme, self.guide):
-            self.assertNotIn("admin_resilient_2026", content)
+            self.assertNotIn(legacy_password, content)
 
     def test_readme_documents_local_secrets_and_viewer_profile(self):
         self.assertIn("GF_ADMIN_PASSWORD", self.readme)

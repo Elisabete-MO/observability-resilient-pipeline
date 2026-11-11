@@ -7,39 +7,72 @@
 ```powershell
 git switch Development
 git pull origin Development
-Copy-Item .env.example .env   # apenas se o .env ainda nao existir
+```
+
+Confirme que o Docker Desktop está aberto e com o engine em execução.
+
+### Método principal no Windows: `start-pipeline.ps1`
+
+O script de inicialização realmente versionado no repositório é
+`start-pipeline.ps1`. Execute-o na raiz do projeto:
+
+```powershell
+.\start-pipeline.ps1 -OpenBrowser
+```
+
+O script:
+
+* verifica Docker, Docker Compose e o engine;
+* cria o `.env` a partir de `.env.example` se o arquivo não existir;
+* solicita o usuário administrador, se necessário, e as senhas
+  `GF_ADMIN_PASSWORD`/`GF_VIEWER_PASSWORD` com `Read-Host -AsSecureString`
+  (entrada oculta e confirmação), sem exibi-las nem gravá-las no histórico de
+  comandos;
+* valida a configuração com `docker compose config --quiet`;
+* sobe os serviços sem apagar volumes;
+* confere endpoints, targets do Prometheus e o encerramento do provisionador do
+  `viewer`.
+
+Após alterar código, use `.\start-pipeline.ps1 -Build` para reconstruir as
+imagens.
+
+### Alternativa manual
+
+Se preferir executar manualmente:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# edite o .env e preencha GF_ADMIN_USER, GF_ADMIN_PASSWORD e GF_VIEWER_PASSWORD
+docker compose config
+docker compose up -d
 ```
 
 Edite o `.env` local (ignorado pelo Git) e preencha obrigatoriamente:
 
-* `GF_ADMIN_USER` e `GF_ADMIN_PASSWORD` — conta administrativa do Grafana.
-* `GF_VIEWER_PASSWORD` — senha do usuario `viewer`, criado automaticamente.
-
-Depois valide a configuração:
-
-```powershell
-docker compose config
-```
+* `GF_ADMIN_USER` e `GF_ADMIN_PASSWORD` — conta administrativa do Grafana. Cada
+  instalação pode usar sua própria senha administrativa.
+* `GF_VIEWER_PASSWORD` — senha do usuário `viewer`, criado automaticamente. É
+  uma credencial compartilhada de demonstração, configurada localmente; não é
+  uma senha individual por integrante.
 
 Não existem credenciais padrão no repositório. Se alguma variável obrigatória
 estiver vazia, `docker compose config` e `docker compose up -d` falham com uma
 mensagem clara.
 
-O script `.\start-pipeline.ps1` automatiza essa etapa: se o `.env` não existir
-ou estiver incompleto, ele cria o arquivo a partir de `.env.example` e solicita
-as senhas com `Read-Host -AsSecureString` (entrada oculta), sem exibi-las nem
-gravá-las no histórico de comandos.
-
-Confirme que o Docker Desktop está aberto e com o engine em execução.
-
 ## 2. Subir a aplicação
 
 ```powershell
-docker compose up -d --build
+docker compose up -d
 docker compose ps
 ```
 
-A primeira inicialização pode demorar mais, especialmente enquanto o Kafka é iniciado e os tópicos são criados. Os serviços `kafka-permissions`, `kafka-init` e `grafana-viewer-provisioner` são tarefas de inicialização: podem aparecer como **Exited (0)** após a conclusão, o que é esperado. O provisionador aguarda o Grafana ficar saudável, cria o usuário `viewer` na organização 1 com papel `Viewer` (se ainda não existir) e encerra.
+Use `docker compose up -d --build` quando precisar reconstruir as imagens após
+alteração de código. A primeira inicialização pode demorar mais, especialmente
+enquanto o Kafka é iniciado e os tópicos são criados. Os serviços
+`kafka-permissions`, `kafka-init` e `grafana-viewer-provisioner` são tarefas de
+inicialização: podem aparecer como **Exited (0)** após a conclusão, o que é
+esperado. O provisionador aguarda o Grafana ficar saudável, cria o usuário
+`viewer` na organização 1 com papel `Viewer` (se ainda não existir) e encerra.
 
 ## 3. Endereços para acesso
 
@@ -57,7 +90,27 @@ A primeira inicialização pode demorar mais, especialmente enquanto o Kafka é 
 | Dashboard do pipeline | http://localhost:3000/d/resilient-pipeline | Painéis de ingestão, processamento, lag e estado do alerta |
 | Alertmanager | http://localhost:9093 | Alertas ativos e silenciamentos |
 
-**Credenciais do Grafana:** use o administrador definido em `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD` no `.env` local. O usuário `viewer` autentica com a senha de `GF_VIEWER_PASSWORD` e possui papel `Viewer` na organização 1: consegue visualizar dashboards, mas não editar nem acessar configurações administrativas. Acesso anônimo e cadastro público estão desabilitados. Credenciais reais nunca devem ir para o Git.
+**Credenciais do Grafana:**
+
+* **Administrador:** use `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD` definidos no `.env`
+  local. Cada instalação pode ter sua própria senha administrativa; não há senha
+  padrão no repositório.
+* **Viewer:** o usuário `viewer` é criado automaticamente e possui papel
+  `Viewer` na organização 1: consegue visualizar dashboards, mas não editar nem
+  acessar configurações administrativas. A senha vem de
+  `GF_VIEWER_PASSWORD` e é uma **credencial compartilhada de demonstração**,
+  configurada localmente; não é individual por integrante e não deve ser
+  reutilizada fora do ambiente local.
+* Acesso anônimo e cadastro público estão desabilitados. Credenciais reais nunca
+  devem ir para o Git.
+
+**Persistência de usuários:** os usuários do Grafana ficam no volume nomeado
+`grafana_data` (`/var/lib/grafana`). Em instalação nova, o administrador é criado
+com `GF_ADMIN_USER`/`GF_ADMIN_PASSWORD` e o `viewer` pelo provisionador com
+`GF_VIEWER_PASSWORD`. Em reinicializações com volume existente, as senhas já
+gravadas são preservadas; alterar o `.env` não redefine a senha do administrador
+nem a de um `viewer` já existente. `docker compose down` preserva os volumes. A
+remoção de volumes é um procedimento destrutivo separado na seção 8.
 
 **Observações:** o Consumer expõe `/metrics` na porta interna `8001`, acessível ao Prometheus pela rede Docker; não há publicação dessa porta no host. O Kafka está acessível no host em `localhost:9092` (além da rede interna Docker).
 
@@ -82,14 +135,19 @@ No Prometheus, confirme que os alvos essenciais (`producer`, `consumer`, `kafka-
 
 ## 5. Teste de carga pelo PowerShell
 
-O gerador de carga usa a biblioteca padrão do Python, sem instalação de dependências adicionais.
+O gerador de carga usa a biblioteca padrão do Python, sem instalação de
+dependências adicionais, mas requer Python 3.10+ disponível no host.
 
 ```powershell
 python --version
 python benchmarks/load_test.py --scenario load --rate 10 --duration 30 --workers 40
 ```
 
-Atenção ao relatório: `scheduled` = requisições planejadas, `submitted` = efetivamente submetidas, `skipped_busy` = descartadas pelo gerador por falta de workers e `confirmed` = respostas confirmadas. Não trate `scheduled` como eventos efetivamente publicados.
+Atenção ao relatório: `scheduled` = requisições planejadas, `submitted` =
+efetivamente submetidas, `skipped_busy`/`skipped_late` = descartadas pelo gerador
+e `confirmed` = respostas confirmadas. Não trate `scheduled` como eventos
+efetivamente publicados. Em uma execução anterior do cenário de lag, foram
+planejadas 2.100 submissões e apenas 680 foram efetivamente submetidas.
 
 ### Consultar lag acumulado no Prometheus
 
@@ -118,11 +176,15 @@ docker compose stop consumer
 python benchmarks/load_test.py --scenario load --rate 20 --duration 60 --workers 80
 
 # 3. Acompanhar o lag no Grafana / Prometheus e o alerta HighConsumerLag
-# 4. Reiniciar e escalar para 3 consumers
-docker compose up -d --scale consumer=3 consumer
+# 4. Reiniciar e escalar para 3 consumers, sem recriar dependências
+docker compose up -d --no-deps --scale consumer=3 consumer
 ```
 
-A condição obrigatória para `HighConsumerLag` é **lag total acima de 500 por mais de 30 segundos**. O teste manual acima não garante que esse limiar seja atingido; confira as métricas e os alertas efetivos. Registre capturas de `FIRING`, da recuperação e do lag drenado até zero.
+A carga manual planeja 1.200 submissões (20 req/s por 60 s), mas o gerador pode
+descartar parte delas. A condição obrigatória para `HighConsumerLag` é **lag
+total acima de 500 por mais de 30 segundos**. O teste manual acima não garante
+que esse limiar seja atingido; confira as métricas e os alertas efetivos.
+Registre capturas de `FIRING`, da recuperação e do lag drenado até zero.
 
 ## 7. Encerrar, reiniciar e atualizar
 
@@ -140,19 +202,42 @@ docker compose up -d --build
 docker compose restart grafana
 ```
 
-**Evite `docker compose down -v` durante os testes e antes da apresentação:** essa opção remove volumes persistentes, incluindo dados do Kafka, Prometheus e Grafana.
+Esses comandos preservam os volumes persistentes. A remoção de volumes é tratada
+separadamente na próxima seção.
 
-## 8. Arquivos importantes
+## 8. Limpeza destrutiva (opcional)
+
+> **Atenção: perda de dados.** O comando abaixo remove os volumes
+> `kafka_data`, `prometheus_data`, `grafana_data` e `alertmanager_data`. Isso
+> apaga usuários e configurações persistidas no Grafana, histórico do
+> Prometheus e dados do Kafka. Dashboards e datasources são reprovisionados a
+> partir dos arquivos, mas usuários e dados históricos não são recuperados.
+> Execute apenas se quiser reiniciar o ambiente do zero, nunca durante os testes
+> ou antes da apresentação.
+
+```powershell
+docker compose down -v
+```
+
+## 9. Arquivos importantes
 
 | Arquivo | Conteúdo |
 |---|---|
+| `start-pipeline.ps1` | Inicialização principal no Windows (Docker, `.env`, subida e verificações) |
 | `compose.yaml` | Serviços, redes, portas e variáveis de ambiente |
 | `.env.example` | Exemplo de configuração local |
 | `infra/prometheus/prometheus.yml` | Targets e intervalo de coleta |
 | `infra/prometheus/rules/pipeline.yml` | Regras `HighConsumerLag` e `HighErrorRate` |
 | `infra/grafana/provisioning/dashboards/json/pipeline.json` | Dashboard provisionado automaticamente |
+| `infra/grafana/provisioning/viewer_provision.py` | Provisionamento idempotente do usuário `viewer` |
 | `docs/09-runbook.md` | Diagnóstico e resposta a incidentes |
+| `docs/15-grafana-viewer-provisioning-report.md` | Provisionamento do Grafana, credenciais e persistência |
 | `benchmarks/scenarios/simulate_lag.sh` | Cenário automatizado de lag (Bash) |
 | `benchmarks/scenarios/simulate_errors.sh` | Cenário automatizado de erros (Bash) |
 
-> Este guia contém comandos de execução e acesso, não representa uma certificação de que todos os cenários de integração foram aprovados no ambiente atual. Para a apresentação, valide e registre as evidências na máquina que será usada na defesa.
+> **Estado de validação:** a suíte unitária tem 52 testes aprovados; o
+> provisionamento do Grafana e os dois alertas foram validados manualmente em
+> Docker. Os scripts `.sh` de cenário ainda não foram executados de ponta a
+> ponta no host da apresentação. Este guia não certifica que todos os cenários
+> de integração foram aprovados no ambiente atual; valide e registre as
+> evidências na máquina que será usada na defesa.

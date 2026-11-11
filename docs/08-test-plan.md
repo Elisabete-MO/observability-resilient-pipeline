@@ -24,3 +24,17 @@ A suíte é composta por 52 testes automatizados em `tests/`, executáveis diret
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
+No Windows, o comando equivalente é
+`python -m unittest discover -s tests -p "test_*.py" -v`. Sem Python no host, a
+suíte pode ser executada em container:
+
+```powershell
+docker run --rm -v "${PWD}:/work" -w /work python:3.13-slim python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+**Estado:** 52 testes unitários aprovados na revisão de 11/11/2026. A suíte
+valida módulos, configuração e documentação; ela **não** sobe a pilha Docker e
+**não** executa os scripts `simulate_lag.sh` e `simulate_errors.sh` de ponta a
+ponta. Esses cenários foram verificados manualmente em Docker, conforme
+`docs/13-delivery-fixes-report.md`.
+
