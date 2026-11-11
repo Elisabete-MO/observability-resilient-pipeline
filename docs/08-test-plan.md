@@ -1,6 +1,6 @@
 # Plano de Testes Automatizados
  
-A suíte é composta por 39 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
+A suíte é composta por 52 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
  
 1. **Validação de Contrato (`tests/test_consumer_validation.py` - 7 testes):**
    - Payload válido, regex de tipo de evento, timezone UTC obrigatório, campos extras proibidos (`extra="forbid"`), formato UUIDv4, limite de 64 KiB e tratamento de JSON corrompido.
@@ -16,6 +16,8 @@ A suíte é composta por 39 testes automatizados em `tests/`, executáveis diret
    - Modelo matemático conservador que confirma carga acima da capacidade do consumer, lag > 500 por mais de 30 s e permanência acima do limiar no instante da verificação do alerta; valida também que o cenário inicia com 1 réplica e sem injeção de erros e que aguarda os estados FIRING/resolução.
 7. **Métricas de Bytes do Kafka (`tests/test_kafka_bytes_metrics.py` - 7 testes):**
    - JMX remoto habilitado no broker, sidecar JMX Exporter fixado por digest, mapeamento real de `BytesInPerSec`/`BytesOutPerSec`, scrape de 5 s, preservação do Kafka Exporter, painel de tráfego em `Bps` no Grafana (mantendo os 10 painéis anteriores) e documentação dos nomes reais das métricas.
+8. **Provisionamento do Viewer (`tests/test_grafana_viewer_provisioning.py` - 13 testes):**
+   - Ausência de credenciais conhecidas no Compose/exemplo, interpolação obrigatória sem fallback, placeholders vazios, bloqueio de acesso anônimo e cadastro público, healthcheck do Grafana, provisionador one-shot endurecido, uso da Admin API, preservação da senha existente, verificação de administrador do servidor, ausência de log de senhas, validação de variáveis obrigatórias, função de redação e documentação do procedimento local.
 
 ### Comando de Execução
 ```bash

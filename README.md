@@ -36,17 +36,48 @@ Simulador / Benchmark (Python)
 * Docker e Docker Compose instalados.
 * Python 3.10+ (opcional, para rodar benchmarks e testes no host).
 
+### Configurar credenciais locais
+```bash
+cp .env.example .env
+```
+
+Edite o `.env` local (ignorado pelo Git) e defina valores exclusivos para:
+
+* `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD` — conta administrativa do Grafana.
+* `GF_VIEWER_PASSWORD` — senha da conta `viewer`, provisionada automaticamente.
+
+O Compose não possui fallback de credenciais. Se alguma dessas variáveis
+estiver ausente ou vazia, `docker compose up -d` falha com uma mensagem clara
+antes de iniciar o Grafana.
+
+Alternativamente, execute `.\start-pipeline.ps1`: se o `.env` não existir ou
+estiver incompleto, o script cria o arquivo a partir de `.env.example` e solicita
+as senhas com entrada oculta, sem exibi-las na tela nem gravá-las no histórico
+de comandos.
+
+### Perfis do Grafana
+* **Administrador:** acesso de manutenção; a senha existente nunca é alterada
+  pelo provisionamento.
+* **Viewer:** usuário `viewer`, criado de forma idempotente na organização 1
+  com o papel `Viewer`. Pode autenticar e visualizar o dashboard, mas não pode
+  editar dashboards nem acessar configurações administrativas. Se o usuário já
+  existir, a senha é preservada e apenas o papel é verificado.
+* Acesso anônimo e cadastro público permanecem desabilitados.
+
 ### Subir todo o ambiente
 ```bash
 docker compose up -d
 ```
+
+O serviço one-shot `grafana-viewer-provisioner` aguarda o Grafana ficar
+saudável, executa o provisionamento e encerra com código `0`.
 
 ### URLs de Acesso
 | Serviço | URL | Descrição / Credenciais |
 |---|---|---|
 | **Producer API** | `http://localhost:8000` | Ingestão HTTP (`/api/v1/events`, `/health`, `/metrics`) |
 | **Prometheus** | `http://localhost:9090` | Coleta de métricas e avaliação de regras (intervalo 5s) |
-| **Grafana** | `http://localhost:3000` | Dashboard auto-provisionado (login desabilitado) |
+| **Grafana** | `http://localhost:3000` | Dashboard auto-provisionado; login obrigatório (admin local ou `viewer`) |
 | **Alertmanager** | `http://localhost:9093` | Painel de alertas ativos e silenciamentos |
 
 ---
@@ -83,7 +114,7 @@ docker compose up -d
 5. **Contenção de Armazenamento no Kafka:** Limite estrito de 1 GB por partição (`KAFKA_LOG_RETENTION_BYTES`) prevenindo exaustão de disco no host.
 6. **CORS & HTTP Security Headers:** Restrição estrita de origens confiáveis (`CORSMiddleware`) e headers defensivos (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`).
 7. **Rate Limiting Defensivo:** Algoritmo Token Bucket in-memory configurável via `PRODUCER_RATE_LIMIT_RPS`.
-8. **Hardening de Credenciais:** Grafana configurado via variáveis de ambiente com arquivo [.env.example](.env.example) para controle de acesso seguro.
+8. **Hardening de Credenciais:** Grafana sem senhas padrão no repositório; credenciais obrigatórias vêm do `.env` local e o Compose falha fechado se estiverem ausentes. Usuário `viewer` provisionado via Admin API, sem acesso anônimo ou cadastro público.
 9. **Garantia de Entrega e Anti-Slowloris no Producer:** Confirmação de persistência no Kafka via `asyncio.Future` antes do `202 Accepted`, com semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) e timeout estrito de 2s, blindando a API contra perda em memória e contra exaustão de conexões.
 
 ### Regras de Alerta (`infra/prometheus/rules/pipeline.yml`)
@@ -139,6 +170,7 @@ Consulte a pasta [`docs/`](docs/) para especificações técnicas complementares
 * [Estratégia de Resiliência](docs/06-resilience.md)
 * [Checklist de Entrega](docs/10-delivery-checklist.md)
 * [Auditoria do Kafka Exporter](docs/12-kafka-exporter-audit.md)
+* [Provisionamento do usuário Viewer no Grafana](docs/15-grafana-viewer-provisioning-report.md)
 
 
 

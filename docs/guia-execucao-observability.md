@@ -7,8 +7,28 @@
 ```powershell
 git switch Development
 git pull origin Development
+Copy-Item .env.example .env   # apenas se o .env ainda nao existir
+```
+
+Edite o `.env` local (ignorado pelo Git) e preencha obrigatoriamente:
+
+* `GF_ADMIN_USER` e `GF_ADMIN_PASSWORD` — conta administrativa do Grafana.
+* `GF_VIEWER_PASSWORD` — senha do usuario `viewer`, criado automaticamente.
+
+Depois valide a configuração:
+
+```powershell
 docker compose config
 ```
+
+Não existem credenciais padrão no repositório. Se alguma variável obrigatória
+estiver vazia, `docker compose config` e `docker compose up -d` falham com uma
+mensagem clara.
+
+O script `.\start-pipeline.ps1` automatiza essa etapa: se o `.env` não existir
+ou estiver incompleto, ele cria o arquivo a partir de `.env.example` e solicita
+as senhas com `Read-Host -AsSecureString` (entrada oculta), sem exibi-las nem
+gravá-las no histórico de comandos.
 
 Confirme que o Docker Desktop está aberto e com o engine em execução.
 
@@ -19,7 +39,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-A primeira inicialização pode demorar mais, especialmente enquanto o Kafka é iniciado e os tópicos são criados. Os serviços `kafka-permissions` e `kafka-init` são tarefas de inicialização: podem aparecer como **Exited (0)** após a conclusão, o que é esperado.
+A primeira inicialização pode demorar mais, especialmente enquanto o Kafka é iniciado e os tópicos são criados. Os serviços `kafka-permissions`, `kafka-init` e `grafana-viewer-provisioner` são tarefas de inicialização: podem aparecer como **Exited (0)** após a conclusão, o que é esperado. O provisionador aguarda o Grafana ficar saudável, cria o usuário `viewer` na organização 1 com papel `Viewer` (se ainda não existir) e encerra.
 
 ## 3. Endereços para acesso
 
@@ -37,7 +57,7 @@ A primeira inicialização pode demorar mais, especialmente enquanto o Kafka é 
 | Dashboard do pipeline | http://localhost:3000/d/resilient-pipeline | Painéis de ingestão, processamento, lag e estado do alerta |
 | Alertmanager | http://localhost:9093 | Alertas ativos e silenciamentos |
 
-**Credenciais padrão do Grafana:** usuário `admin`; senha `admin_resilient_2026`, **somente se** não houver valores personalizados em `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD` e se o volume do Grafana não tiver guardado outra senha. Não publique credenciais reais no repositório.
+**Credenciais do Grafana:** use o administrador definido em `GF_ADMIN_USER` / `GF_ADMIN_PASSWORD` no `.env` local. O usuário `viewer` autentica com a senha de `GF_VIEWER_PASSWORD` e possui papel `Viewer` na organização 1: consegue visualizar dashboards, mas não editar nem acessar configurações administrativas. Acesso anônimo e cadastro público estão desabilitados. Credenciais reais nunca devem ir para o Git.
 
 **Observações:** o Consumer expõe `/metrics` na porta interna `8001`, acessível ao Prometheus pela rede Docker; não há publicação dessa porta no host. O Kafka está acessível no host em `localhost:9092` (além da rede interna Docker).
 

@@ -8,6 +8,8 @@
 - [x] Bytes trafegados pelo Kafka: coletados via JMX Exporter (`kafka_server_brokertopicmetrics_bytesin_total` e `_bytesout_total`), com scrape de 5 s e painel no Grafana; Kafka Exporter preservado.
 - [x] Prometheus coleta targets em intervalo de 5 s com suporte a escala de consumers via `dns_sd_configs`.
 - [x] Grafana provisiona dashboard automaticamente (`pipeline.json`).
+- [x] Grafana provisiona o usuário `viewer` de forma idempotente na organização 1 com papel `Viewer`, sem acesso anônimo ou cadastro público.
+- [x] Credenciais administrativas do Grafana vêm exclusivamente do `.env` local, sem fallback no Compose; o provisionador não altera a senha de usuário existente.
 - [x] Dashboard apresenta ingestão, percentis (p50/p95/p99), lag por partição, consumo/erros, tráfego em bytes/s e saúde (`up`).
 - [x] HighConsumerLag dispara e resolve em cenário controlado (`simulate_lag.sh`).
 - [x] HighErrorRate dispara e resolve em cenário controlado (`simulate_errors.sh`).
