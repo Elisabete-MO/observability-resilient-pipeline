@@ -9,9 +9,9 @@
 2. **Dead Letter Queue (DLQ):**
    - Tópico `raw-events-dlq` particionado para isolar mensagens envenenadas (*poison pills* ou corrupção de schema).
    - Metadados de diagnóstico gravados em headers (`x-error-reason`, `x-original-partition`, `x-original-offset`, `x-failed-at`).
-   - Métrica `kafka_consumer_dlq_events_total` exportada para o Prometheus.
+   - A publicação usa `acks=all` e aguarda o callback de confirmação do broker (`on_delivery`) por até `DLQ_PUBLISH_TIMEOUT_SECONDS` (padrão 5 s). A métrica `kafka_consumer_dlq_events_total` só é incrementada após o ACK.
 3. **Commit Manual Síncrono no Consumer:**
-   - Desabilitado auto-commit (`enable.auto.commit: false`). O offset só é confirmado após processamento bem-sucedido ou após confirmação de entrega na DLQ, evitando perda silenciosa de dados.
+   - Desabilitado auto-commit (`enable.auto.commit: false`). O offset só é confirmado após processamento bem-sucedido ou após **confirmação efetiva de entrega na DLQ**. Se a publicação na DLQ falhar ou expirar, o offset não é confirmado e o Consumer encerra o laço sem commit, permitindo reprocessamento em uma nova sessão.
 4. **Rebalanceamento Automático e Auto-Scaling:**
    - Suporte a escala dinâmica de consumidores (`docker compose up -d --scale consumer=3`). O Kafka rebalanceia as 3 partições automaticamente entre as instâncias disponíveis no mesmo grupo.
 5. **Mitigação de DoS e Limite de Payload:**
@@ -20,4 +20,4 @@
 
 ## Cenários de Teste de Falha (Roteiro da Defesa)
 - **Lag sob Carga:** Simulado via `benchmarks/scenarios/simulate_lag.sh` (produção acelerada vs consumo lento → alerta WARNING → escala para 3 consumidores → drenagem de lag).
-- **Taxa de Erro:** Simulado via `benchmarks/scenarios/simulate_errors.sh` (injeção de 20% de falha via `PROCESSING_ERROR_RATE` → alerta CRITICAL → restauração e normalização).
+- **Taxa de Erro:** Simulado via `benchmarks/scenarios/simulate_errors.sh` (injeção de 20% de falha via `PROCESSING_ERROR_RATE`, 60 s de tráfego e 1 réplica → alerta CRITICAL → restauração e normalização com 130 s de tráfego limpo para limpar a janela de 2 min).

@@ -23,7 +23,12 @@ flowchart LR
 - **Grafana:** Visualização automática via dashboards provisionados (`pipeline.json`), renderizando taxas de ingestão, percentis p50/p95/p99, proporção de erros e lag por partição.
 - **Alertmanager:** Recepção, deduplicação e roteamento de alertas de degradação e erro.
 
-## Segmentação de Rede (Zero Trust)
-- **`messaging-network`:** Comunicação exclusiva de dados entre `kafka`, `kafka-init`, `producer`, `consumer` e `kafka-exporter`.
-- **`observability-network`:** Comunicação de telemetria entre `producer`, `consumer`, `kafka-exporter`, `prometheus`, `grafana` e `alertmanager`.
+## Segmentação de Redes (isolamento parcial)
+- **`messaging-network`:** Comunicação de dados entre `kafka`, `kafka-init`, `producer`, `consumer`, `kafka-exporter` e `jmx-exporter`.
+- **`observability-network`:** Comunicação de telemetria entre `producer`, `consumer`, `kafka-exporter`, `jmx-exporter`, `prometheus`, `grafana` e `alertmanager`.
 - O Broker e Controller do Kafka não são acessíveis a partir do Grafana ou Alertmanager.
+
+Essa divisão reduz a exposição entre os planos de mensageria e observabilidade,
+mas **não implementa Zero Trust**: não há autenticação mútua, autorização por
+identidade nem criptografia entre containers. O isolamento é uma medida de
+defesa em profundidade de escopo limitado.

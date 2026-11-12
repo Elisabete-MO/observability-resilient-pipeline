@@ -1,16 +1,21 @@
 # Checklist de entrega
 
-- [x] Docker Compose sobe todos os serviços sem falhas.
+- [x] Docker Compose sobe todos os serviços; validação manual em Docker.
 - [x] Producer recebe eventos e confirma publicações via `/api/v1/events` e `/events`.
 - [x] Consumer processa eventos no grupo configurado (`events-processor`).
 - [x] Endpoints `/metrics` expõem métricas obrigatórias (`http_requests_total`, `kafka_consumer_lag_records`, etc.).
-- [x] Kafka Exporter fornece métricas verificadas.
+- [x] Kafka Exporter fornece métricas de partições e lag verificadas.
+- [x] Bytes trafegados pelo Kafka: coletados via JMX Exporter (`kafka_server_brokertopicmetrics_bytesin_total` e `_bytesout_total`), com scrape de 5 s e painel no Grafana; Kafka Exporter preservado.
 - [x] Prometheus coleta targets em intervalo de 5 s com suporte a escala de consumers via `dns_sd_configs`.
 - [x] Grafana provisiona dashboard automaticamente (`pipeline.json`).
-- [x] Dashboard apresenta ingestão, percentis (p50/p95/p99), lag por partição, consumo/erros e saúde (`up`).
-- [x] HighConsumerLag dispara e resolve em cenário controlado (`simulate_lag.sh`).
-- [x] HighErrorRate dispara e resolve em cenário controlado (`simulate_errors.sh`).
-- [x] Benchmark produz resultados reproduzíveis com percentis calculados.
+- [x] Grafana provisiona o usuário `viewer` de forma idempotente na organização 1 com papel `Viewer`, sem acesso anônimo ou cadastro público.
+- [x] Credenciais administrativas do Grafana vêm exclusivamente do `.env` local, sem fallback no Compose; o provisionador não altera a senha de usuário existente.
+- [x] Dashboard apresenta ingestão, percentis (p50/p95/p99), lag por partição, consumo/erros, tráfego em bytes/s e saúde (`up`).
+- [x] HighConsumerLag: disparo e resolução verificados **manualmente** em Docker; o script `simulate_lag.sh` ainda não foi executado de ponta a ponta no host da apresentação.
+- [x] HighErrorRate: disparo e resolução verificados **manualmente** em Docker; o script `simulate_errors.sh` ainda não foi executado de ponta a ponta no host da apresentação.
+- [x] Benchmark gera relatório com `scheduled`, `submitted`, `skipped_busy`/`skipped_late` e `confirmed`; os resultados variam conforme o ambiente e não garantem a vazão planejada.
+- [x] Suíte unitária com 52 testes aprovados (execução em container).
+- [ ] Executar `simulate_lag.sh` e `simulate_errors.sh` de ponta a ponta no ambiente da defesa e registrar as evidências.
 - [x] Equipe demonstra diagnóstico de causa raiz com roteiro pronto.
 - [x] README documenta instalação, execução, métricas e defesa.
-- [x] Repositório público não contém segredos nem credenciais sensíveis.
+- [x] Repositório não versiona o `.env` local nem senhas administrativas em uso; `.env.example` contém apenas placeholders.

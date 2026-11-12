@@ -1,0 +1,2 @@
+# Scripts de cenario sao executados por bash; manter LF mesmo no Windows.
+*.sh text eol=lf

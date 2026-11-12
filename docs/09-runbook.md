@@ -64,8 +64,16 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server loca
    ```
 4. **Normalizar o ambiente:**
    ```bash
-   PROCESSING_ERROR_RATE=0 docker compose up -d consumer
+   PROCESSING_ERROR_RATE=0 docker compose up -d --no-deps --scale consumer=1 --force-recreate consumer
+   docker compose exec -T consumer printenv PROCESSING_ERROR_RATE
    ```
+   O `compose.yaml` interpola `${PROCESSING_ERROR_RATE:-0}`; o `--force-recreate`
+   garante que o container seja recriado com o novo valor. Após restaurar, envie
+   tráfego de recuperação por pelo menos 2 minutos para limpar a janela móvel do
+   alerta `HighErrorRate`.
+   Se o cenário de lag foi executado antes, aguarde a drenagem da fila (lag
+   próximo de zero) antes de injetar erros; caso contrário, a janela de 2 minutos
+   ainda contém muitos sucessos e dilui a taxa de erro.
 
 ---
 

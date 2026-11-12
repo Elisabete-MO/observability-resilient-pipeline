@@ -1,133 +1,114 @@
 # Observability & Resilient Pipeline
 
-Pipeline de processamento distribuído orientado a eventos (**EDA**) construído com **Apache Kafka**, instrumentado sob o padrão **RED** (Rate, Errors, Duration) com **Prometheus**, visualização em tempo real via **Grafana**, gestão de incidentes no **Alertmanager** e suíte de benchmarks/testes em **Python**.
+Pipeline orientado a eventos que demonstra, de ponta a ponta, ingestão,
+processamento e observabilidade. A API FastAPI recebe eventos, publica no Apache
+Kafka e o consumer processa a fila. O Prometheus coleta as métricas, o Grafana
+exibe os dashboards e o Alertmanager concentra os alertas.
 
-> **Status:** Concluído e pronto para entrega / defesa.
+O ponto de entrada do projeto é a **Central de Acesso**, uma página local gerada
+pelo script de inicialização. É por ela que você chega ao Grafana, ao Prometheus,
+ao Alertmanager e à documentação da API.
 
----
+## Pré-requisitos
 
-## 1. Arquitetura da Solução
+* Windows com PowerShell 5.1+.
+* Docker Desktop aberto e com o engine em execução (Docker Compose v2).
+* Repositório clonado, com os comandos executados na raiz e na branch
+  `Development`.
+* Python 3.10+ apenas para o teste de carga opcional. A pilha sobe sem ele.
 
-```text
-Simulador / Benchmark (Python)
-            │
-            ▼ HTTP POST /api/v1/events (202 Accepted)
-     [Producer API] ──── /metrics ────┐
-            │                         │
-            ▼ Publicação assíncrona   │
-     [Apache Kafka]                   ├────► [Prometheus] ────► [Grafana: 3000]
-      (raw-events)                    │         │
-            │                         │         ▼
-            ▼                         ├────► [Alertmanager: 9093]
-    [Consumer Worker] ── /metrics ────┤
-      (events-processor)              │
-            │ (poison pills / errors) │
-            ▼                         │
-     [raw-events-dlq]                 │
-            ▲                         │
-    [Kafka Exporter] ─── /metrics ────┘
+## Iniciar o projeto
+
+Na raiz do repositório, execute:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start-pipeline.ps1 -OpenBrowser
 ```
 
----
+Na primeira execução, ou se alguma credencial estiver faltando, o script cria o
+`.env` local e solicita:
 
-## 2. Inicialização Rápida
+* `GF_ADMIN_USER` — usuário administrador do Grafana;
+* `GF_ADMIN_PASSWORD` — senha desse administrador;
+* `GF_VIEWER_PASSWORD` — senha do usuário de demonstração `viewer`.
 
-### Pré-requisitos
-* Docker e Docker Compose instalados.
-* Python 3.10+ (opcional, para rodar benchmarks e testes no host).
+As senhas são digitadas com entrada oculta e confirmação, não aparecem no
+histórico de comandos e são gravadas apenas no `.env` local, que é ignorado pelo
+Git. Não há credenciais padrão no repositório.
 
-### Subir todo o ambiente
-```bash
-docker compose up -d
-```
+Depois de subir os serviços e verificar a saúde do ambiente, o script abre
+automaticamente a **Central de Acesso**. A primeira execução pode levar alguns
+minutos, enquanto o Kafka e os demais serviços iniciam. Se o terminal indicar
+pendências, a própria central mostra o estado dos serviços e o guia técnico
+explica como diagnosticar.
 
-### URLs de Acesso
-| Serviço | URL | Descrição / Credenciais |
+## Central de Acesso e principais ferramentas
+
+A Central é um relatório local da inicialização, com o resumo das verificações,
+o estado dos seis targets e atalhos para as ferramentas. Ela não substitui o
+Grafana: funciona como a porta de entrada do ambiente.
+
+| Ferramenta | Para que serve | Endereço |
 |---|---|---|
-| **Producer API** | `http://localhost:8000` | Ingestão HTTP (`/api/v1/events`, `/health`, `/metrics`) |
-| **Prometheus** | `http://localhost:9090` | Coleta de métricas e avaliação de regras (intervalo 5s) |
-| **Grafana** | `http://localhost:3000` | Dashboard auto-provisionado (login desabilitado) |
-| **Alertmanager** | `http://localhost:9093` | Painel de alertas ativos e silenciamentos |
+| **Central de Acesso** | Ponto de partida e estado da inicialização | Aberta pelo script |
+| **Grafana** | Dashboard do pipeline, com taxa, latência, erros, lag e alertas | http://localhost:3000 |
+| **Prometheus** | Consultas e verificação dos targets | http://localhost:9090 |
+| **Alertmanager** | Alertas ativos e silenciamentos | http://localhost:9093 |
+| **FastAPI** | Documentação interativa da API de ingestão | http://localhost:8000/docs |
 
----
+## Login no Grafana
 
-## 3. Conformidade das Métricas (Padrão RED)
+* **Administrador:** use `GF_ADMIN_USER` e `GF_ADMIN_PASSWORD`, definidos na
+  primeira execução.
+* **Viewer:** usuário `viewer`, com papel `Viewer` na organização 1. Ele pode
+  visualizar dashboards, mas não editar nem acessar configurações
+  administrativas. A senha é `GF_VIEWER_PASSWORD`, uma credencial compartilhada
+  de demonstração definida localmente.
 
-### Producer API (`http://localhost:8000/metrics`)
-* `http_requests_total{status_code, method}` (Counter): Taxa de requisições recebidas.
-* `kafka_producer_published_events_total` (Counter): Mensagens entregues com sucesso ao Kafka.
-* `kafka_producer_errors_total` (Counter): Falhas de publicação ou buffer cheio.
-* `http_request_duration_seconds` (Histogram): Latência HTTP para percentis p50, p95 e p99.
+As contas ficam no volume `grafana_data`. Em uma instalação já existente,
+alterar o `.env` não redefine senhas já gravadas. O guia técnico descreve a
+persistência e a limpeza do ambiente.
 
-### Consumer Worker
-* `kafka_consumer_processed_events_total{status="success|error"}` (Counter): Eventos processados.
-* `kafka_consumer_processing_duration_seconds` (Histogram): Duração do processamento.
-* `kafka_consumer_lag_records{partition}` (Gauge): Distância entre o high watermark e o offset atual.
-* `kafka_consumer_dlq_events_total{reason}` (Counter): Mensagens não-processáveis isoladas na Dead Letter Queue.
+## Como observar o pipeline
 
-### Segurança e Resiliência Implementadas (Defense in Depth)
-1. **Proteção contra DoS / OOM (CWE-400):** Middleware no Producer intercepta requisições com `Content-Length > 64 KiB` antes de alocar memória ou fazer parse do JSON, retornando `413 Payload Too Large`.
-2. **Dead Letter Queue (DLQ):** Tópico `raw-events-dlq` armazena mensagens com falha irreversível (poison pills) com metadados de diagnóstico (`x-error-reason`, `x-original-offset`, `x-failed-at`).
-3. **Segmentação de Redes Docker (Zero Trust):** Divisão isolada entre `messaging-network` (dados de mensageria) e `observability-network` (Prometheus/Grafana), prevenindo movimentação lateral.
-4. **Hardening de Containers (CIS Docker Benchmark):** Diretivas `security_opt: [no-new-privileges:true]`, descarte de capabilities com `cap_drop: [ALL]`, e sistema de arquivos raiz somente-leitura (`read_only: true`) com `tmpfs: /tmp` nas aplicações.
-5. **Contenção de Armazenamento no Kafka:** Limite estrito de 1 GB por partição (`KAFKA_LOG_RETENTION_BYTES`) prevenindo exaustão de disco no host.
-6. **CORS & HTTP Security Headers:** Restrição estrita de origens confiáveis (`CORSMiddleware`) e headers defensivos (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`).
-7. **Rate Limiting Defensivo:** Algoritmo Token Bucket in-memory configurável via `PRODUCER_RATE_LIMIT_RPS`.
-8. **Hardening de Credenciais:** Grafana configurado via variáveis de ambiente com arquivo [.env.example](.env.example) para controle de acesso seguro.
-9. **Garantia de Entrega e Anti-Slowloris no Producer:** Confirmação de persistência no Kafka via `asyncio.Future` antes do `202 Accepted`, com semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) e timeout estrito de 2s, blindando a API contra perda em memória e contra exaustão de conexões.
+1. Abra a Central de Acesso e escolha **Grafana** para entrar no dashboard.
+2. No **Prometheus**, confirme em `/targets` que os alvos estão `UP`.
+3. Opcionalmente, gere carga com o teste simples abaixo.
+4. Acompanhe no dashboard a taxa de requisições, a latência, os erros, o lag do
+   consumer e o estado dos alertas. Use o **Alertmanager** para ver os alertas
+   ativos.
 
-### Regras de Alerta (`infra/prometheus/rules/pipeline.yml`)
-1. **`HighConsumerLag` (WARNING):** Lag acumulado do grupo `events-processor` > 500 mensagens por mais de 30 segundos.
-2. **`HighErrorRate` (CRITICAL):** Taxa de erros de processamento do Consumer > 5% em janela móvel de 2 minutos.
+## Teste simples e opcional
 
----
+Com a pilha em execução e Python 3.10+ instalado no host, execute na raiz:
 
-## 4. Roteiro para Defesa Prática (15% da Nota)
-
-Foram criados scripts automatizados de um comando para reproduzir cada cenário de falha durante a apresentação:
-
-### Cenário A: Acúmulo de Lag & Rebalanceamento Dinâmico
-```bash
-./benchmarks/scenarios/simulate_lag.sh
-```
-* **O que demonstra:** Injeta carga de 50 req/s gerando lag > 500; o alerta `HighConsumerLag` transiciona para `FIRING`; o script escala para 3 consumidores (`--scale consumer=3`), as partições são rebalanceadas, o lag drena rapidamente e o alerta se resolve.
-
-### Cenário B: Injeção de Erros & Diagnóstico de Causa Raiz
-```bash
-./benchmarks/scenarios/simulate_errors.sh
-```
-* **O que demonstra:** Configura injeção de 20% de erros no processamento (`PROCESSING_ERROR_RATE=0.20`); a taxa supera o limiar de 5%; o alerta `HighErrorRate` entra em estado `FIRING`; restaura a taxa para zero e o alerta é resolvido.
-
----
-
-## 5. Testes Automatizados e Benchmarks
-
-### Executar Testes Unitários
-```bash
-python3 -m unittest discover -s tests -p "test_*.py" -v
+```powershell
+python --version
+python benchmarks/load_test.py --scenario load --rate 5 --duration 20 --workers 10
 ```
 
-### Executar Teste de Carga Customizado
-```bash
-# Teste de carga estável (steady)
-python3 benchmarks/load_test.py --scenario load --rate 20 --duration 30
+Esse teste envia eventos válidos e não provoca falhas intencionais. O relatório
+distingue requisições planejadas, submetidas e confirmadas; nem toda requisição
+planejada chega a ser enviada. Para cenários de lag e de erros, consulte o guia
+técnico.
 
-# Teste de estresse progressivo (steps de carga)
-python3 benchmarks/load_test.py --scenario stress --rate 10 --duration 30
+## Encerrar o ambiente
 
-# Teste de surto repentino (spike)
-python3 benchmarks/load_test.py --scenario spike --rate 10 --duration 30
+```powershell
+docker compose stop
 ```
 
----
+Esse comando preserva os volumes, incluindo usuários e histórico. Para iniciar
+novamente, execute o mesmo comando de inicialização apresentado acima.
 
-## 6. Documentação Detalhada
-Consulte a pasta [`docs/`](docs/) para especificações técnicas complementares:
-* [Requisitos e Critérios de Aceite](docs/03-requirements.md)
-* [Contrato de Eventos](docs/04-event-contract.md)
-* [Plano de Observabilidade](docs/05-observability.md)
-* [Estratégia de Resiliência](docs/06-resilience.md)
-* [Checklist de Entrega](docs/10-delivery-checklist.md)
+## Documentação da equipe
 
+O [guia técnico da equipe](docs/guia-execucao-observability.md) detalha o
+funcionamento do script, a Central de Acesso, o provisionamento do `viewer`,
+diagnóstico, testes automatizados, testes de carga, cenários de lag e erros,
+limitações e limpeza destrutiva.
 
-
+> **Estado de validação (11/11/2026):** a suíte unitária tem 52 testes
+> aprovados. O provisionamento do Grafana e os dois alertas foram validados
+> manualmente em Docker. Os scripts de cenário em Bash ainda não foram
+> executados de ponta a ponta no host da apresentação.

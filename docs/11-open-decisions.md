@@ -5,10 +5,10 @@
 | ADR-001 | Kafka KRaft single-node e versão | **Resolvido** | Imagem oficial `apache/kafka:4.2.2` em modo KRaft sem dependência de Zookeeper. |
 | ADR-002 | Número de partições de `raw-events` | **Resolvido** | 3 partições criadas automaticamente pelo container `kafka-init`. Tópico `raw-events-dlq` também com 3 partições. |
 | ADR-003 | Modelo de publicação HTTP no Producer | **Resolvido** | Retorno `202 Accepted` assíncrono após confirmação de entrega do Kafka via `asyncio.Future`, garantindo persistência sem bloqueio do event loop. |
-| ADR-004 | Estratégia de commits e reprocessamento | **Resolvido** | Commit explícito após sucesso ou após isolamento na Dead Letter Queue (`raw-events-dlq`). |
+| ADR-004 | Estratégia de commits e reprocessamento | **Resolvido** | Commit explícito após sucesso ou após ACK efetivo da publicação na Dead Letter Queue (`raw-events-dlq`). Falha/timeout na DLQ mantém o offset sem commit. |
 | ADR-005 | Medição de lag por partição e agregado | **Resolvido** | Coleta pelo `kafka-exporter` (`kafka_consumergroup_lag`) e pelo Gauge nativo `kafka_consumer_lag_records` no Consumer. |
-| ADR-006 | Métricas do cluster e broker | **Resolvido** | `kafka-exporter:v1.8.0` integrado ao Prometheus, filtrando `raw-events` e grupo `events-processor`. |
-| ADR-007 | Simulação determinística de erros | **Resolvido** | Variável `PROCESSING_ERROR_RATE` parametrizável e script `benchmarks/scenarios/simulate_errors.sh`. |
+| ADR-006 | Métricas do cluster e broker | **Resolvido** | `kafka-exporter:v1.8.0` para partições, offsets e lag (filtros `raw-events` / `events-processor`); sidecar JMX Exporter para bytes (`kafka_server_brokertopicmetrics_bytesin_total` / `_bytesout_total`) com scrape de 5 s. Detalhes em `docs/12-kafka-exporter-audit.md`. |
+| ADR-007 | Simulação determinística de erros | **Resolvido** | Variável `PROCESSING_ERROR_RATE` interpolada pelo Compose (`${PROCESSING_ERROR_RATE:-0}`), recriação explícita do container e verificação do valor aplicado via `printenv` no script `benchmarks/scenarios/simulate_errors.sh`. |
 | ADR-008 | Volume mínimo para alerta de taxa de erros | **Resolvido** | Adicionada cláusula de taxa mínima (`sum(rate(...)) > 0.1`) prevenindo falso alarme em períodos ociosos. |
 | ADR-009 | Versões Python, bibliotecas e imagens | **Resolvido** | Imagens `python:3.13-slim`, FastAPI 1.0, confluent-kafka 2.16.1, Prometheus v3.5.0, Grafana 12.1.0 e Alertmanager v0.28.1. |
 | ADR-010 | Proteção contra DoS e Backpressure no Producer | **Resolvido** | Semáforo de concorrência (`PRODUCER_MAX_CONCURRENT_PRODUCES`) com fail-fast (503) e timeout rígido de 2s (504) contra saturação e Slowloris. |
