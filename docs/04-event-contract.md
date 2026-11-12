@@ -18,4 +18,8 @@ O enunciado não define o formato do payload. Este contrato é **proposto**, nã
 - `payload`: objeto JSON com limite de tamanho a definir.
 
 ## Respostas HTTP
-Definir antes de implementar: `202 Accepted` pode significar aceitação para publicação assíncrona, **não** confirmação de persistência no Kafka. A confirmação de publicação deve ser medida separadamente. Definir resposta para payload inválido, indisponibilidade do Kafka e timeout.
+- `202 Accepted`: Retornado após confirmação da persistência no broker Kafka (`acks=all`), contendo `status: "published"`, `event_id`, `topic`, `partition` e `offset`.
+- `413 Payload Too Large`: Rejeição antecipada de requisições com `Content-Length > 64 KiB`.
+- `422 Unprocessable Entity`: Falha na validação de schema Pydantic ou JSON inválido.
+- `503 Service Unavailable`: Falha na comunicação com o Kafka ou semáforo de concorrência lotado (backpressure).
+- `504 Gateway Timeout`: Timeout na confirmação de entrega do Kafka (> 2.0s).

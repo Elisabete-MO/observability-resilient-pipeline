@@ -1,0 +1,81 @@
+
+groups:
+  - name: pipeline
+    rules:
+      - alert: HighConsumerLag
+        expr: |
+          sum(
+            kafka_consumergroup_lag{
+              consumergroup="events-processor",
+              topic="raw-events"
+            } >= 0
+          ) > 500
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Acumulo de mensagens no Consumer"
+          description: "Lag total acima de 500 por mais de 30 segundos. Valor: {{ $value }}."
+          action: "Confira se o Consumer esta ativo, escale consumidores e consulte seus logs."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(
+              rate(
+                kafka_consumer_processed_events_total{status="error"}[2m]
+              )
+            )
+            /
+            sum(
+              rate(
+                kafka_consumer_processed_events_total[2m]
+              )
+            )
+          ) > 0.05
+          and
+          (
+            sum(
+              rate(
+                kafka_consumer_processed_events_total[2m]
+              )
+            ) > 0.1
+          )
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taxa elevada de erros no Consumer"
+          description: "Mais de 5% dos eventos processados resultaram em erro na janela de 2 minutos."
+          action: "Confira os logs do consumer e a configuracao PROCESSING_ERROR_RATE."
+
+      - alert: ProducerBackpressureHigh
+        expr: |
+          (
+            sum(
+              rate(
+                http_requests_total{status_code="503"}[1m]
+              )
+            )
+            /
+            sum(
+              rate(
+                http_requests_total[1m]
+              )
+            )
+          ) > 0.05
+          and
+          (
+            sum(
+              rate(
+                http_requests_total[1m]
+              )
+            ) > 0.5
+          )
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Descarte elevado por backpressure no Producer (HTTP 503)"
+          description: "Mais de 5% das requisicoes estao sendo rejeitadas pelo semaforo de concorrencia na janela de 1 minuto."
+          action: "Verifique a latencia de persistencia do Kafka e considere escalar horizontalmente o servico Producer."

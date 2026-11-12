@@ -1,29 +1,34 @@
-# Arquitetura
+# Arquitetura do Sistema
 
 ```mermaid
 flowchart LR
-  B[Simulador / Benchmark] -->|HTTP POST| P[Producer API]
-  P -->|publish| K[(Kafka: raw-events)]
+  B[Simulador / Benchmark] -->|HTTP POST /api/v1/events| P[Producer API]
+  P -->|Publicação assíncrona| K[(Kafka: raw-events)]
   K --> C[Consumer Worker]
+  C -.->|Poison pills / Erros| DLQ[(Kafka: raw-events-dlq)]
   P -->|/metrics| M[Prometheus]
   C -->|/metrics| M
   K --> E[Kafka Exporter]
-  E --> M
-  M --> G[Grafana]
-  M --> A[Alertmanager]
+  E -->|/metrics| M
+  M --> G[Grafana: 3000]
+  M --> A[Alertmanager: 9093]
 ```
 
-## Responsabilidades
-- **Producer:** valida entrada, publica assincronamente, mede HTTP e resultado de publicação.
-- **Kafka:** buffer de eventos particionados.
-- **Consumer:** consome por grupo, simula processamento, mede duração e resultado.
-- **Kafka Exporter:** expõe métricas de cluster, partições e consumer group lag.
-- **Prometheus:** coleta métricas em 2–5 s e avalia regras.
-- **Grafana:** dashboards provisionados em arquivos.
-- **Alertmanager:** recebe alertas do Prometheus.
+## Componentes e Responsabilidades
+- **Producer API:** Ingestão HTTP de eventos via `POST /api/v1/events` e `POST /events`. Validação Pydantic (UUID, timezone, schema), confirmação assíncrona de persistência no Kafka (`asyncio.Future`), semáforo de concorrência e timeout fail-fast contra DoS/Slowloris, rejeição antecipada de payloads > 64 KiB (413), headers de segurança e métricas RED.
+- **Apache Kafka (KRaft):** Broker de mensageria em modo KRaft com 3 partições no tópico `raw-events` e 3 partições no tópico `raw-events-dlq`. Retenção de 1 GB por partição.
+- **Consumer Worker:** Consumo assíncrono via Consumer Group `events-processor`, simulação de latência de processamento, injeção de falhas determinísticas (`PROCESSING_ERROR_RATE`), envio de poison pills para a DLQ e cálculo dinâmico de lag.
+- **Kafka Exporter:** Exportador nativo do cluster para coleta de partições, offsets e lag do consumer group.
+- **Prometheus:** Coleta em intervalo de 5s, descoberta dinâmica de réplicas de consumer via `dns_sd_configs` e avaliação de alertas (`HighConsumerLag` e `HighErrorRate`).
+- **Grafana:** Visualização automática via dashboards provisionados (`pipeline.json`), renderizando taxas de ingestão, percentis p50/p95/p99, proporção de erros e lag por partição.
+- **Alertmanager:** Recepção, deduplicação e roteamento de alertas de degradação e erro.
 
-## Limites
-`/metrics` não deve exportar payload, identificadores de evento ou labels de alta cardinalidade. Logs e eventos brutos não vão para o Prometheus.
+## Segmentação de Redes (isolamento parcial)
+- **`messaging-network`:** Comunicação de dados entre `kafka`, `kafka-init`, `producer`, `consumer`, `kafka-exporter` e `jmx-exporter`.
+- **`observability-network`:** Comunicação de telemetria entre `producer`, `consumer`, `kafka-exporter`, `jmx-exporter`, `prometheus`, `grafana` e `alertmanager`.
+- O Broker e Controller do Kafka não são acessíveis a partir do Grafana ou Alertmanager.
 
-## Decisões ainda pendentes
-Versão e modo de execução do Kafka, número de partições, semântica de entrega, estratégia de commit de offsets e definição exata da medição de lag. Ver `11-open-decisions.md`.
+Essa divisão reduz a exposição entre os planos de mensageria e observabilidade,
+mas **não implementa Zero Trust**: não há autenticação mútua, autorização por
+identidade nem criptografia entre containers. O isolamento é uma medida de
+defesa em profundidade de escopo limitado.
