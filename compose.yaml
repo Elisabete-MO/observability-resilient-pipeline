@@ -126,11 +126,14 @@ services:
       PRODUCER_WAIT_FOR_ACK: "true"
       PRODUCER_ACK_TIMEOUT_SECONDS: "2.0"
       PRODUCER_MAX_CONCURRENT_PRODUCES: "500"
+      PRODUCER_SEMAPHORE_TIMEOUT_SECONDS: "0.100"
+      WEB_CONCURRENCY: "4"
+      PROMETHEUS_MULTIPROC_DIR: "/tmp"
 
     ports:
       - "127.0.0.1:8000:8000"
 
-    mem_limit: 256m
+    mem_limit: 512m
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -171,9 +174,12 @@ services:
       KAFKA_DLQ_TOPIC: raw-events-dlq
       KAFKA_CONSUMER_GROUP: events-processor
       CONSUMER_METRICS_PORT: "8001"
-      PROCESSING_MIN_MS: "50"
-      PROCESSING_MAX_MS: "200"
-      PROCESSING_ERROR_RATE: "0"
+
+      # Aceitam valores do terminal ou do .env.
+      # Sem configuração, utilizam os padrões após ":-".
+      PROCESSING_MIN_MS: "${PROCESSING_MIN_MS:-50}"
+      PROCESSING_MAX_MS: "${PROCESSING_MAX_MS:-200}"
+      PROCESSING_ERROR_RATE: "${PROCESSING_ERROR_RATE:-0}"
 
     expose:
       - "8001"

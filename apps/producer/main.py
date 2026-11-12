@@ -41,6 +41,7 @@ RATE_LIMIT_RPS = int(os.getenv("PRODUCER_RATE_LIMIT_RPS", "0"))
 WAIT_FOR_ACK = os.getenv("PRODUCER_WAIT_FOR_ACK", "true").lower() in ("true", "1", "yes")
 ACK_TIMEOUT_SECONDS = float(os.getenv("PRODUCER_ACK_TIMEOUT_SECONDS", "2.0"))
 MAX_CONCURRENT_PRODUCES = int(os.getenv("PRODUCER_MAX_CONCURRENT_PRODUCES", "500"))
+SEMAPHORE_TIMEOUT_SECONDS = float(os.getenv("PRODUCER_SEMAPHORE_TIMEOUT_SECONDS", "0.100"))
 
 
 class TokenBucketLimiter:
@@ -136,6 +137,10 @@ async def lifespan(app: FastAPI):
             "acks": "all",
             "delivery.timeout.ms": 10000,
             "request.timeout.ms": 5000,
+            "compression.type": "lz4",
+            "linger.ms": 5,
+            "batch.num.messages": 1000,
+            "queue.buffering.max.messages": 100000,
         }
     )
 
@@ -275,8 +280,15 @@ def ready(request: Request):
 
 @app.get("/metrics")
 def metrics():
+    if "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+        from prometheus_client import CollectorRegistry, multiprocess
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        content = generate_latest(registry)
+    else:
+        content = generate_latest()
     return Response(
-        content=generate_latest(),
+        content=content,
         headers={"Content-Type": CONTENT_TYPE_LATEST},
     )
 
@@ -308,37 +320,50 @@ async def handle_event_ingestion(event: Event, request: Request):
         request.app.state.produce_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PRODUCES)
         produce_semaphore = request.app.state.produce_semaphore
 
-    # Se a fila de espera do semaforo estiver cheia, falha rapido (backpressure / anti-DoS)
-    if produce_semaphore.locked():
+    # Controle de concorrencia com fila de espera curta (Graceful Queueing)
+    try:
+        if SEMAPHORE_TIMEOUT_SECONDS > 0:
+            await asyncio.wait_for(
+                produce_semaphore.acquire(),
+                timeout=SEMAPHORE_TIMEOUT_SECONDS,
+            )
+        else:
+            if produce_semaphore.locked():
+                raise HTTPException(
+                    503,
+                    "Producer sobrecarregado (concorrencia maxima de publicacao atingida). Tente novamente.",
+                )
+            await produce_semaphore.acquire()
+    except (asyncio.TimeoutError, TimeoutError):
         raise HTTPException(
             503,
             "Producer sobrecarregado (concorrencia maxima de publicacao atingida). Tente novamente.",
         )
 
-    started = time.perf_counter()
-    loop = asyncio.get_running_loop()
-    delivery_future = loop.create_future() if WAIT_FOR_ACK else None
+    try:
+        started = time.perf_counter()
+        loop = asyncio.get_running_loop()
+        delivery_future = loop.create_future() if WAIT_FOR_ACK else None
 
-    def on_delivery(error, message):
-        DELIVERY_DURATION.observe(time.perf_counter() - started)
-        if error is not None:
-            KAFKA_PRODUCER_ERRORS.inc()
-            logger.error("Falha na entrega Kafka para event_id=%s: %s", event.event_id, error)
-            if delivery_future is not None and not delivery_future.done():
-                exc = error if isinstance(error, BaseException) else RuntimeError(str(error))
-                loop.call_soon_threadsafe(
-                    delivery_future.set_exception,
-                    exc,
-                )
-        else:
-            KAFKA_PUBLISHED_EVENTS.inc()
-            if delivery_future is not None and not delivery_future.done():
-                loop.call_soon_threadsafe(
-                    delivery_future.set_result,
-                    (message.partition(), message.offset()),
-                )
+        def on_delivery(error, message):
+            DELIVERY_DURATION.observe(time.perf_counter() - started)
+            if error is not None:
+                KAFKA_PRODUCER_ERRORS.inc()
+                logger.error("Falha na entrega Kafka para event_id=%s: %s", event.event_id, error)
+                if delivery_future is not None and not delivery_future.done():
+                    exc = error if isinstance(error, BaseException) else RuntimeError(str(error))
+                    loop.call_soon_threadsafe(
+                        delivery_future.set_exception,
+                        exc,
+                    )
+            else:
+                KAFKA_PUBLISHED_EVENTS.inc()
+                if delivery_future is not None and not delivery_future.done():
+                    loop.call_soon_threadsafe(
+                        delivery_future.set_result,
+                        (message.partition(), message.offset()),
+                    )
 
-    async with produce_semaphore:
         try:
             request.app.state.producer.produce(
                 topic=TOPIC,
@@ -393,6 +418,8 @@ async def handle_event_ingestion(event: Event, request: Request):
                 503,
                 f"Falha de persistencia no Kafka: {exc}",
             ) from None
+    finally:
+        produce_semaphore.release()
 
 
 @app.post("/api/v1/events", status_code=202)
