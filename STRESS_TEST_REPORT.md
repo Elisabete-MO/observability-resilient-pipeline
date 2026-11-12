@@ -251,3 +251,24 @@ Quando a segunda máquina for introduzida, a divisão ótima da topologia distri
 
 Essa separação física isola totalmente a CPU e memória da camada HTTP do consumo de disco e processamento das mensagens, permitindo ultrapassar com facilidade **50.000+ requisições por segundo**.
 
+---
+
+### 8.5. Resultados Coletados com os Novos Parâmetros Integrados (Pós-Merge)
+
+Após a integração das atualizações remotas (incluindo o exportador JMX de tráfego de rede, novas regras de timeout da DLQ e provisionador seguro do Grafana), o pipeline completo foi submetido novamente à bateria progressiva de estresse.
+
+#### Tabela de Resultados Consolidados (Ambiente Integrado Atual)
+
+| Carga Testada | Conexões Simultâneas | Duração | Throughput Efetivo | Entregas Confirmadas (202) | Rejeições (503) | Latência p50 | Latência p95 | RAM Producer (Pico) | Tráfego Kafka JMX (`raw-events`) |
+|---|---|---|---|---|---|---|---|---|---|
+| **Carga Moderada** | 1.200 | 0.48 s | **2.501,9 req/s** | **1.200 (100.0%)** | **0 (0.0%)** | 334.21 ms | 417.59 ms | 484.6 MiB | 720.819 B |
+| **Carga Alta** | 3.000 | 1.26 s | **2.383,9 req/s** | **3.000 (100.0%)** | **0 (0.0%)** | 727.10 ms | 1.080,82 ms | 497.6 MiB | 1.054.120 B |
+| **Saturação Nominal** | 5.000 | 2.13 s | **2.346,3 req/s** | **5.000 (100.0%)** | **0 (0.0%)** | 1.130,04 ms | 1.792,79 ms | 469.9 MiB | 1.237.143 B |
+| **Ruptura de Concorrência** | 8.000 | 3.57 s | **2.242,3 req/s** | **6.820 (85.2%)** | **1.180 (14.8%)** | 2.019,20 ms | 2.945,15 ms | 468.6 MiB | 1.873.838 B |
+
+#### Observações do Comportamento Atual:
+1. **Estabilidade Perfeita até 5.000 Conexões Simultâneas:** O pipeline manteve **100% de entregas confirmadas e zero falhas** em até 5.000 conexões simultâneas instantâneas (~2.350–2.500 req/s estáveis).
+2. **Ativação Correta do JMX Exporter:** A métrica de bytes por segundo no Kafka (`kafka_server_brokertopicmetrics_bytesin_total`) registrou o pico de **1.873.838 bytes** de entrada durante as rajadas, confirmando a coleta e exibição no painel 11 do Grafana.
+3. **Volume Total Acumulado:** O tópico `raw-events` atingiu mais de **91.500 mensagens persistidas** com integridade total em suas 3 partições.
+
+
