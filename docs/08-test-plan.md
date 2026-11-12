@@ -1,13 +1,13 @@
 # Plano de Testes Automatizados
  
-A suíte é composta por 52 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
+A suíte é composta por 55 testes automatizados em `tests/`, executáveis diretamente sem dependências externas adicionais:
  
 1. **Validação de Contrato (`tests/test_consumer_validation.py` - 7 testes):**
    - Payload válido, regex de tipo de evento, timezone UTC obrigatório, campos extras proibidos (`extra="forbid"`), formato UUIDv4, limite de 64 KiB e tratamento de JSON corrompido.
 2. **Durabilidade e Resiliência do Producer (`tests/test_producer_durability.py` - 5 testes):**
    - Confirmação de persistência assíncrona (`asyncio.Future`), erro de broker (503), timeout de broker (504), semáforo de concorrência com fail-fast (503) e fallback de alta vazão sem espera.
-3. **Métricas e Benchmarks (`tests/test_benchmark_metrics.py` - 3 testes):**
-   - Precisão de percentis (p50, p95, p99), proteção contra lista vazia e validação de argumentos CLI.
+3. **Métricas e Benchmarks (`tests/test_benchmark_metrics.py` - 6 testes):**
+   - Precisão de percentis (p50, p95, p99), proteção contra lista vazia, validação de argumentos CLI, uso do endereço padrão `127.0.0.1` e funcionamento do argumento `--url`.
 4. **Segurança e DLQ (`tests/test_security.py` - 7 testes):**
    - Rate limiter Token Bucket (concessão e bloqueio), roteamento para a DLQ com headers forenses e garantia de que falha, timeout ou ausência do producer da DLQ impedem o commit do offset.
 5. **Configuração do Compose (`tests/test_compose_config.py` - 5 testes):**
@@ -32,7 +32,7 @@ suíte pode ser executada em container:
 docker run --rm -v "${PWD}:/work" -w /work python:3.13-slim python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-**Estado:** 52 testes unitários aprovados na revisão de 11/11/2026. A suíte
+**Estado:** 55 testes unitários aprovados na revisão de 12/11/2026. A suíte
 valida módulos, configuração e documentação; ela **não** sobe a pilha Docker e
 **não** executa os scripts `simulate_lag.sh` e `simulate_errors.sh` de ponta a
 ponta. Esses cenários foram verificados manualmente em Docker, conforme

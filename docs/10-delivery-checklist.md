@@ -14,7 +14,7 @@
 - [x] HighConsumerLag: disparo e resolução verificados **manualmente** em Docker; o script `simulate_lag.sh` ainda não foi executado de ponta a ponta no host da apresentação.
 - [x] HighErrorRate: disparo e resolução verificados **manualmente** em Docker; o script `simulate_errors.sh` ainda não foi executado de ponta a ponta no host da apresentação.
 - [x] Benchmark gera relatório com `scheduled`, `submitted`, `skipped_busy`/`skipped_late` e `confirmed`; os resultados variam conforme o ambiente e não garantem a vazão planejada.
-- [x] Suíte unitária com 52 testes aprovados (execução em container).
+- [x] Suíte unitária com 55 testes aprovados (execução em container).
 - [ ] Executar `simulate_lag.sh` e `simulate_errors.sh` de ponta a ponta no ambiente da defesa e registrar as evidências.
 - [x] Equipe demonstra diagnóstico de causa raiz com roteiro pronto.
 - [x] README documenta instalação, execução, métricas e defesa.

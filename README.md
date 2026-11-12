@@ -108,7 +108,7 @@ funcionamento do script, a Central de Acesso, o provisionamento do `viewer`,
 diagnóstico, testes automatizados, testes de carga, cenários de lag e erros,
 limitações e limpeza destrutiva.
 
-> **Estado de validação (11/11/2026):** a suíte unitária tem 52 testes
+> **Estado de validação (12/11/2026):** a suíte unitária tem 55 testes
 > aprovados. O provisionamento do Grafana e os dois alertas foram validados
 > manualmente em Docker. Os scripts de cenário em Bash ainda não foram
 > executados de ponta a ponta no host da apresentação.

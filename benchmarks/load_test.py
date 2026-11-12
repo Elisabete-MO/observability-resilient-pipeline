@@ -14,6 +14,11 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 
+# IPv4 explicito: neste ambiente Windows, "localhost" apresentou cerca de 2 s
+# de latencia por requisicao. A causa exata nao foi confirmada.
+DEFAULT_URL = "http://127.0.0.1:8000/api/v1/events"
+
+
 def positive_int(value):
     number = int(value)
     if number <= 0:
@@ -43,9 +48,7 @@ def main():
         choices=["load", "stress", "spike"],
         default="load",
     )
-    parser.add_argument(
-        "--url", default="http://localhost:8000/api/v1/events"
-    )
+    parser.add_argument("--url", default=DEFAULT_URL)
     parser.add_argument("--rate", type=positive_int, default=5)
     parser.add_argument("--duration", type=positive_int, default=60)
     parser.add_argument("--workers", type=positive_int, default=10)

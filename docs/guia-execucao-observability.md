@@ -228,7 +228,7 @@ Se houver Python 3.10+ no host, o comando equivalente é:
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-**Resultado desta revisão:** 52 testes executados, todos aprovados.
+**Resultado desta revisão (12/11/2026):** 55 testes executados, todos aprovados.
 
 ## 6. Testes de carga
 
@@ -245,6 +245,23 @@ python benchmarks/load_test.py --scenario stress --rate 10 --duration 30
 # Surto repentino (baseline, pico e recuperação)
 python benchmarks/load_test.py --scenario spike --rate 10 --duration 30
 ```
+
+### Endereço padrão e latência no Windows
+
+O gerador usa por padrão `http://127.0.0.1:8000/api/v1/events`. Neste ambiente
+Windows, execuções com `localhost` mediram cerca de 2.050 ms por requisição,
+enquanto `127.0.0.1` ficou na casa de poucos milissegundos. A causa exata do
+atraso com `localhost` **não foi confirmada**. A troca melhora a medição do
+benchmark e não representa uma otimização do Producer, do Consumer ou do Kafka.
+
+Para apontar o gerador para outro endereço, use `--url`:
+
+```powershell
+python benchmarks/load_test.py --url http://localhost:8000/api/v1/events --scenario load --rate 10 --duration 30
+```
+
+Resultados observados e escopo do diagnóstico:
+[relatório do endereço padrão do benchmark](16-benchmark-loopback-report.md).
 
 Leitura do relatório:
 
@@ -402,7 +419,7 @@ docker compose down -v
 
 **Comprovado nesta revisão**
 
-* A suíte unitária tem 52 testes aprovados.
+* A suíte unitária tem 55 testes aprovados.
 * O provisionamento do Grafana e os dois alertas foram validados manualmente em
   Docker em etapas anteriores do projeto.
 
@@ -427,6 +444,8 @@ como aprovados.
 * [Runbook de incidentes](09-runbook.md) — diagnóstico e resposta.
 * [Relatório de provisionamento do Grafana](15-grafana-viewer-provisioning-report.md)
   — credenciais, `viewer` e persistência.
+* [Relatório do endereço padrão do benchmark](16-benchmark-loopback-report.md)
+  — diferença entre `localhost` e `127.0.0.1` no Windows.
 * [Relatório de correções de entrega](13-delivery-fixes-report.md) — correções e
   validações.
 * [Auditoria do Kafka Exporter](12-kafka-exporter-audit.md) — métricas do broker.
